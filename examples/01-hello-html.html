@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>01 · Hello, drawElementImage() — HTML in Canvas</title>
+    <meta name="description" content="The minimum HTML-in-Canvas demo: a live, interactive card painted into a canvas via drawElementImage()." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <style>
+      .hello-stage {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 0;
+      }
+      @media (max-width: 900px) {
+        .hello-stage { grid-template-columns: 1fr; }
+      }
+
+      /* The canvas IS the stage. Its children are laid out by the browser
+         thanks to the `layoutsubtree` attribute, then we paint them with
+         drawElementImage. Backdrop is drawn by the canvas API. */
+      .canvas-host {
+        position: relative;
+        min-height: 480px;
+        background:
+          radial-gradient(700px 400px at 80% -10%, rgba(124,92,255,.10), transparent 60%),
+          radial-gradient(500px 300px at 10% 110%, rgba(34,211,238,.08), transparent 60%),
+          #0a0c12;
+        overflow: hidden;
+      }
+      .canvas-host__label {
+        position: absolute;
+        top: 12px; left: 14px;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10.5px;
+        letter-spacing: .14em;
+        text-transform: uppercase;
+        color: var(--text-mute);
+        background: rgba(11,13,18,.7);
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        z-index: 5;
+        pointer-events: none;
+      }
+
+      canvas.scene {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 480px;
+        /* Let clicks pass through the canvas surface to its DOM children
+           (the source card). Without this, the canvas bitmap layer
+           intercepts pointer events even though the children's layout
+           boxes are positioned underneath via the returned transform. */
+        pointer-events: none;
+      }
+      canvas.scene > * { pointer-events: auto; }
+
+      /* The source card — lives inside the canvas when supported, or in
+         .fallback-host when not. */
+      .source-card {
+        width: 300px;
+        padding: 22px;
+        background: linear-gradient(180deg, #1b2030, #11141c);
+        border: 1px solid #2a3243;
+        border-radius: 14px;
+        box-shadow: 0 18px 40px -20px rgba(0,0,0,.7);
+        display: flex; flex-direction: column; gap: 16px;
+        font-size: 14px;
+        color: var(--text);
+        /* `transform-origin` matters: the transform returned by
+           drawElementImage assumes 0,0 anchored at top-left. */
+        transform-origin: 0 0;
+      }
+      .source-card__head { display: flex; align-items: center; justify-content: space-between; }
+      .source-card__title { margin: 0; font-size: 13px; font-weight: 600; }
+      .badge {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10.5px; padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(124,92,255,.15);
+        color: #c4b5fd;
+        border: 1px solid rgba(124,92,255,.35);
+      }
+      /* When the source has data-animate="true", the badge breathes via a
+         CSS animation. The browser repaints the badge every compositor
+         frame, which fires the canvas's onpaint at ~60fps — that's the
+         engine that drives the bob math in paint(). */
+      .source-card[data-animate="true"] .badge {
+        animation: badgeBreath 1.6s ease-in-out infinite;
+      }
+      @keyframes badgeBreath {
+        0%, 100% {
+          background: rgba(124,92,255,.15);
+          color: #c4b5fd;
+          border-color: rgba(124,92,255,.35);
+        }
+        50% {
+          background: rgba(34,211,238,.18);
+          color: #67e8f9;
+          border-color: rgba(34,211,238,.4);
+        }
+      }
+      .clock {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 28px; letter-spacing: .04em;
+        font-variant-numeric: tabular-nums;
+        margin: 0;
+      }
+      .clock__sub {
+        font-size: 11px; color: var(--text-mute);
+        letter-spacing: .12em; text-transform: uppercase;
+        margin-top: 4px;
+      }
+      .counter { display: flex; align-items: center; gap: 10px; }
+      .counter__value {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 18px; font-variant-numeric: tabular-nums;
+        min-width: 3ch; text-align: center;
+      }
+      .counter__btn {
+        width: 30px; height: 30px;
+        border-radius: 8px;
+        border: 1px solid var(--border-strong);
+        background: var(--bg-elev);
+        color: var(--text);
+        font-size: 16px; cursor: pointer;
+        transition: background .12s ease, transform .08s ease;
+      }
+      .counter__btn:hover { background: var(--bg-elev-2); }
+      .counter__btn:active { transform: scale(.94); }
+      .counter__label { font-size: 12px; color: var(--text-mute); margin-left: 4px; }
+
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      .field label { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-mute); }
+      .field input {
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        color: var(--text);
+        padding: 8px 10px; border-radius: 8px;
+        font: inherit; outline: none;
+      }
+      .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,.25); }
+
+      /* Info / code panel on the right */
+      .info {
+        border-left: 1px solid var(--border);
+        padding: 22px;
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-width: 0;
+      }
+      @media (max-width: 900px) {
+        .info { border-left: 0; border-top: 1px solid var(--border); }
+      }
+      .info h3 { margin: 0; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-mute); font-weight: 600; }
+      .info p { margin: 0; font-size: 13.5px; color: var(--text-dim); line-height: 1.55; }
+      pre.snippet {
+        margin: 0;
+        padding: 14px;
+        background: #07090d;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 12px;
+        line-height: 1.55;
+        overflow-x: auto;
+        color: #cbd5e1;
+      }
+      .snippet .k { color: #c4b5fd; }
+      .snippet .s { color: #86efac; }
+      .snippet .c { color: #6b7280; font-style: italic; }
+      .snippet .f { color: #93c5fd; }
+
+      /* Controls */
+      .controls {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+        padding: 14px 18px;
+        border-top: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(255,255,255,.015), transparent);
+      }
+      .controls__group {
+        display: flex; align-items: center; gap: 8px;
+        padding: 4px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg);
+      }
+      .seg {
+        background: transparent; border: 0;
+        color: var(--text-dim);
+        padding: 6px 12px; border-radius: 7px;
+        font: inherit; font-size: 13px; cursor: pointer;
+      }
+      .seg[aria-pressed="true"] {
+        background: var(--bg-elev-2);
+        color: var(--text);
+        box-shadow: inset 0 0 0 1px var(--border-strong);
+      }
+      .controls__spacer { flex: 1; }
+      .controls .btn { padding: 8px 12px; font-size: 13px; }
+      .stat {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11.5px; color: var(--text-mute);
+      }
+
+
+      .notice {
+        margin: 18px 22px 22px;
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg);
+        font-size: 13px;
+        color: var(--text-dim);
+        line-height: 1.55;
+      }
+      .notice[data-tone="warn"] {
+        border-color: rgba(251,191,36,.4);
+        background: rgba(251,191,36,.06);
+        color: #fde68a;
+      }
+      .notice[data-tone="error"] {
+        border-color: rgba(248,113,113,.5);
+        background: rgba(248,113,113,.08);
+        color: #fecaca;
+      }
+
+      .diag {
+        position: absolute;
+        right: 12px; top: 12px;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 10px;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px;
+        background: rgba(11,13,18,.7);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--text-dim);
+        pointer-events: none;
+      }
+      .diag__dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: var(--warn);
+        box-shadow: 0 0 0 3px rgba(251,191,36,.18);
+      }
+      .diag[data-state="ok"] .diag__dot {
+        background: var(--good);
+        box-shadow: 0 0 0 3px rgba(52,211,153,.18);
+      }
+      .diag[data-state="bad"] .diag__dot {
+        background: var(--bad);
+        box-shadow: 0 0 0 3px rgba(248,113,113,.18);
+      }
+
+      /* Fallback container when drawElementImage is unavailable */
+      .fallback-host {
+        position: absolute; inset: 0;
+        display: grid; place-items: center;
+        padding: 56px 22px 22px;
+      }
+      /* `display: grid` above defeats the `hidden` attribute's default
+         `display: none` — restore it so the empty fallback layer doesn't
+         intercept clicks meant for the painted card behind it. */
+      .fallback-host[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 01 · Getting started</p>
+            <h1 class="example__title">Hello, drawElementImage()</h1>
+            <p class="example__intro">
+              The smallest useful demo. A live HTML card lives <em>inside</em> a
+              <code>&lt;canvas layoutsubtree&gt;</code>; the canvas paints itself a backdrop, then
+              calls <code>ctx.drawElementImage(card, x, y)</code> to paint the card on top. Type,
+              click, tab — the DOM stays interactive while the canvas remains the visual surface.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="hello-stage">
+            <div class="canvas-host" id="canvas-host">
+              <span class="canvas-host__label">Canvas · drawElementImage()</span>
+              <div class="diag" id="diag" data-state="pending">
+                <span class="diag__dot" aria-hidden="true"></span>
+                <span id="diag-text">checking…</span>
+              </div>
+
+              <!--
+                The <canvas> with `layoutsubtree` instructs the browser to lay out
+                its children. We then paint them onto the canvas with
+                drawElementImage() inside the onpaint handler below.
+              -->
+              <canvas class="scene" id="scene" layoutsubtree>
+                <article class="source-card" id="source" data-animate="true">
+                  <header class="source-card__head">
+                    <h2 class="source-card__title">Welcome aboard</h2>
+                    <span class="badge">LIVE</span>
+                  </header>
+                  <div>
+                    <p class="clock" id="clock">--:--:--</p>
+                    <p class="clock__sub" id="clock-date">loading…</p>
+                  </div>
+                  <div class="field">
+                    <label for="name-input">Your name</label>
+                    <input id="name-input" type="text" placeholder="Type here…" autocomplete="off" />
+                  </div>
+                  <div class="counter" aria-label="Counter">
+                    <button class="counter__btn" id="dec" aria-label="Decrement">−</button>
+                    <span class="counter__value" id="count">0</span>
+                    <button class="counter__btn" id="inc" aria-label="Increment">+</button>
+                    <span class="counter__label">clicks</span>
+                  </div>
+                </article>
+              </canvas>
+
+              <!-- Mounted by JS only when drawElementImage isn't available -->
+              <div class="fallback-host" id="fallback-host" hidden></div>
+            </div>
+
+            <aside class="info" aria-label="Code reference">
+              <div>
+                <h3>The API, in 6 lines</h3>
+              </div>
+              <pre class="snippet"><code><span class="k">const</span> ctx = canvas.<span class="f">getContext</span>(<span class="s">'2d'</span>);
+
+canvas.onpaint = () =&gt; {
+  ctx.<span class="f">reset</span>();
+  <span class="c">// draw your own backdrop, then the element</span>
+  <span class="k">const</span> t = ctx.<span class="f">drawElementImage</span>(card, 0, 0);
+  card.style.transform = t.<span class="f">toString</span>();
+};</code></pre>
+              <p>
+                <code>onpaint</code> fires when the canvas needs to repaint — DOM mutations inside
+                it, user input, focus changes. The returned transform tells the browser where the
+                element layer sits so clicks and focus rings still land in the right pixels.
+              </p>
+              <div>
+                <h3>Try this</h3>
+                <p>Click into the input and type. Click the +/− buttons. The clock updates every
+                  second. Every change drives a repaint of the entire canvas.</p>
+              </div>
+            </aside>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <div class="controls__group" role="group" aria-label="Animation">
+              <button class="seg" id="anim-on"  aria-pressed="true">Float on</button>
+              <button class="seg" id="anim-off" aria-pressed="false">Static</button>
+            </div>
+            <div class="controls__group" role="group" aria-label="Backdrop">
+              <button class="seg" id="bg-grid"  aria-pressed="true">Grid</button>
+              <button class="seg" id="bg-plain" aria-pressed="false">Plain</button>
+            </div>
+            <span class="stat" id="stat">—</span>
+            <div class="controls__spacer"></div>
+            <button class="btn btn--ghost" id="snapshot">Save snapshot (PNG)</button>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>What's happening</h3>
+          <p>
+            The <code>&lt;canvas layoutsubtree&gt;</code> attribute opts the canvas into laying out
+            its DOM children. Inside <code>onpaint</code> we wipe the canvas, draw a backdrop, then
+            call <code>drawElementImage()</code> on the child element — which paints the element's
+            current visual state into the bitmap. We assign the returned transform back to the
+            element's <code>style.transform</code> so the hit-test geometry of the live DOM lines
+            up with the painted pixels.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const ctx       = canvas.getContext('2d');
+        const source    = document.getElementById('source');
+        const host      = document.getElementById('canvas-host');
+        const fbHost    = document.getElementById('fallback-host');
+        const clock     = document.getElementById('clock');
+        const clockSub  = document.getElementById('clock-date');
+        const countEl   = document.getElementById('count');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const snapBtn   = document.getElementById('snapshot');
+
+        const animOn   = document.getElementById('anim-on');
+        const animOff  = document.getElementById('anim-off');
+        const bgGrid   = document.getElementById('bg-grid');
+        const bgPlain  = document.getElementById('bg-plain');
+
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const hasLayoutSubtree = canvas.hasAttribute('layoutsubtree');
+
+        function setDiag(state, text) {
+          diag.dataset.state = state;
+          diagText.textContent = text;
+        }
+        function showError(message, where) {
+          notice.hidden = false;
+          notice.dataset.tone = 'error';
+          notice.textContent = '';
+          const strong = document.createElement('strong');
+          strong.textContent = `Runtime error in ${where}:`;
+          const code = document.createElement('code');
+          code.textContent = message;
+          notice.append(strong, ' ', code);
+          setDiag('bad', `error in ${where}`);
+          console.error(`[hello-drawelement] ${where}:`, message);
+        }
+        window.addEventListener('error', (e) => showError(e.message || String(e.error), 'window'));
+        window.addEventListener('unhandledrejection', (e) => showError(String(e.reason), 'promise'));
+
+        setDiag(supported ? 'ok' : 'bad',
+          supported
+            ? 'drawElementImage() ready'
+            : 'drawElementImage() missing — see notice below');
+
+        // ── Live clock + counter (DOM mutations drive onpaint) ─────────
+        let count = 0;
+        document.getElementById('inc').addEventListener('click', () => { count++; countEl.textContent = count; });
+        document.getElementById('dec').addEventListener('click', () => { count--; countEl.textContent = count; });
+        function tickClock() {
+          const d = new Date();
+          const pad = (n) => String(n).padStart(2, '0');
+          clock.textContent    = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+          clockSub.textContent = d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+        }
+        tickClock();
+        setInterval(tickClock, 1000);
+
+        // ── Demo state ────────────────────────────────────────────────
+        const state = { grid: true, animate: true };
+        function setPressed(group, on) {
+          for (const b of group) b.setAttribute('aria-pressed', b === on ? 'true' : 'false');
+        }
+        // Trigger onpaint by mutating something the browser actually paints.
+        // A `data-tick` change is optimized away because it doesn't affect
+        // rendering — we toggle a real CSS property so the browser repaints.
+        // (Toggling between 1 and 0.999999 is visually identical.)
+        let nudgeTick = 0;
+        function nudge() {
+          nudgeTick = nudgeTick ? 0 : 1;
+          source.style.opacity = nudgeTick ? '1' : '0.999999';
+        }
+        animOn .addEventListener('click', () => {
+          state.animate = true;
+          setPressed([animOn, animOff], animOn);
+          source.dataset.animate = 'true';
+        });
+        animOff.addEventListener('click', () => {
+          state.animate = false;
+          setPressed([animOn, animOff], animOff);
+          source.dataset.animate = 'false';
+          nudge(); // force one more paint so the card lands at its rest position
+        });
+        bgGrid .addEventListener('click', () => { state.grid = true;  setPressed([bgGrid, bgPlain], bgGrid);  nudge(); });
+        bgPlain.addEventListener('click', () => { state.grid = false; setPressed([bgGrid, bgPlain], bgPlain); nudge(); });
+
+        // FPS counters
+        let paintCount = 0;
+        let fpsT = performance.now();
+        let fpsCountAtMark = 0;
+
+        // ── Canvas sizing (1:1 with CSS pixels) ──────────────────────
+        // No DPR scaling — drawElementImage returns its transform in CSS
+        // pixels, and keeping the canvas at 1:1 means that transform aligns
+        // exactly with the DOM box's screen position. We lose a bit of
+        // backdrop sharpness on hi-DPI displays but hit-testing works.
+        function resize() {
+          const rect = host.getBoundingClientRect();
+          const w = Math.max(320, Math.floor(rect.width));
+          const h = Math.max(360, Math.floor(rect.height));
+          canvas.style.width  = `${w}px`;
+          canvas.style.height = `${h}px`;
+          canvas.width  = w;
+          canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host);
+        resize();
+
+        // ── Backdrop drawing (canvas-native) ─────────────────────────
+        function drawBackdrop(w, h) {
+          const g = ctx.createLinearGradient(0, 0, 0, h);
+          g.addColorStop(0, '#0e1320');
+          g.addColorStop(1, '#080a10');
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, w, h);
+
+          if (!state.grid) return;
+          ctx.strokeStyle = 'rgba(255,255,255,.04)';
+          ctx.lineWidth = 1;
+          const step = 28;
+          ctx.beginPath();
+          for (let x = 0; x <= w; x += step) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, h); }
+          for (let y = 0; y <= h; y += step) { ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); }
+          ctx.stroke();
+        }
+
+        // ── The paint function (real API path) ───────────────────────
+        // Following the docs pattern exactly: pass screen position via the
+        // (x, y) args to drawElementImage and assign the returned transform
+        // straight back to the element. Don't apply ctx.translate/rotate
+        // before the call — the returned transform needs to map the
+        // element's normal DOM box to the painted location, which is most
+        // reliable when (x, y) carries the position.
+        function paint() {
+          const w = canvas.width;
+          const h = canvas.height;
+
+          ctx.reset();
+          drawBackdrop(w, h);
+
+          const cardW = source.offsetWidth  || 300;
+          const cardH = source.offsetHeight || 320;
+          const t = performance.now() / 1000;
+          const bobY = state.animate ? Math.sin(t * 1.4) * 10 : 0;
+          const x = Math.round((w - cardW) / 2);
+          const y = Math.round((h - cardH) / 2 + bobY);
+
+          try {
+            const transform = ctx.drawElementImage(source, x, y);
+            if (transform && typeof transform.toString === 'function') {
+              source.style.transform = transform.toString();
+            }
+          } catch (err) {
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            showError(err.message, 'drawElementImage');
+            return;
+          }
+
+          paintCount++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paintCount - fpsCountAtMark) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · ${w}×${h} · ${paintCount} paints`;
+            fpsT = now;
+            fpsCountAtMark = paintCount;
+          }
+        }
+
+        if (supported) {
+          canvas.onpaint = paint;
+          nudge(); // kick off the first paint; the badge CSS animation drives the rest
+        } else {
+          mountFallback();
+        }
+
+        // ── Snapshot ────────────────────────────────────────────────
+        // The canvas already holds the latest pixels (onpaint just ran on the
+        // last DOM mutation), so a direct toDataURL is correct here.
+        snapBtn.addEventListener('click', () => {
+          const link = document.createElement('a');
+          link.download = `hello-drawelement-${Date.now()}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        });
+
+        // ── Fallback (no drawElementImage available) ─────────────────
+        // Move the source card OUT of the canvas (canvas children render as
+        // accessible fallback text in non-supporting browsers, but we want to
+        // show the live card) and render an SVG snapshot of it onto the canvas.
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.append(source);
+
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong');
+          strong.textContent = 'drawElementImage() not detected.';
+          const code1 = document.createElement('code');
+          code1.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(
+            strong,
+            ' You need Chrome Canary 149+ with ',
+            code1,
+            ' set to Enabled. Until then the card is shown as plain DOM and the canvas remains blank.',
+          );
+
+          stat.textContent = 'fallback · plain DOM (no canvas paint)';
+        }
+      })();
+    </script>
+  </body>
+</html>

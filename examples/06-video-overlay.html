@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>06 · Video + UI overlay — HTML in Canvas</title>
+    <meta name="description" content="Composite an HTML player UI on top of bitmap video content." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 540px; }
+      canvas.scene { min-height: 540px; }
+
+      .player {
+        width: 460px;
+        padding: 12px 14px;
+        background: linear-gradient(180deg, rgba(8,10,16,.92), rgba(8,10,16,.78));
+        border: 1px solid rgba(255,255,255,.08);
+        border-radius: 14px;
+        box-shadow: 0 18px 40px -20px rgba(0,0,0,.7);
+        display: flex; align-items: center; gap: 12px;
+        color: var(--text);
+        font-size: 13px;
+        transform-origin: 0 0;
+        backdrop-filter: blur(6px);
+      }
+      .player__btn {
+        width: 36px; height: 36px;
+        border-radius: 50%;
+        background: linear-gradient(180deg, #8a6bff, #6b4dff);
+        border: 0;
+        display: grid; place-items: center;
+        cursor: pointer;
+        color: white;
+        box-shadow: 0 6px 14px -4px rgba(124,92,255,.6);
+      }
+      .player__btn svg { width: 14px; height: 14px; }
+      .player__time { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11.5px; color: var(--text-dim); min-width: 5ch; }
+      .player__track {
+        flex: 1; height: 4px;
+        background: rgba(255,255,255,.12);
+        border-radius: 999px;
+        position: relative;
+        cursor: pointer;
+      }
+      .player__fill {
+        position: absolute; top: 0; left: 0; bottom: 0;
+        background: linear-gradient(90deg, #7c5cff, #22d3ee);
+        border-radius: inherit;
+        width: 0%;
+      }
+      .player__handle {
+        position: absolute; top: 50%;
+        width: 12px; height: 12px;
+        border-radius: 50%;
+        background: white;
+        box-shadow: 0 2px 6px rgba(0,0,0,.4);
+        transform: translate(-50%, -50%);
+        left: 0%;
+      }
+      .player__volume { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
+      .player__volume input { width: 60px; accent-color: var(--accent); }
+
+      .caption {
+        width: 460px;
+        text-align: center;
+        padding: 8px 14px;
+        background: rgba(0,0,0,.55);
+        border-radius: 8px;
+        color: white;
+        font-size: 15px;
+        line-height: 1.4;
+        text-shadow: 0 1px 2px rgba(0,0,0,.6);
+        transform-origin: 0 0;
+      }
+
+      .overlay-stack {
+        display: flex; flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        position: absolute;
+        bottom: -9999px; /* moved into canvas via layoutsubtree */
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 06 · Composites</p>
+            <h1 class="example__title">Video + UI overlay</h1>
+            <p class="example__intro">
+              A live procedural scene is drawn to the canvas frame-by-frame, then an HTML player
+              chrome is composited on top via <code>drawElementImage()</code>. The play button,
+              scrubber, and volume slider are real DOM — focusable, scrubbable, accessible.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · drawImage (scene) + drawElementImage (UI)</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+            <canvas class="scene" id="scene" layoutsubtree>
+              <div class="caption" id="caption-source" data-animate="true">A live procedural scene playing behind a real HTML player.</div>
+              <div class="player" id="player-source">
+                <button class="player__btn" id="play-btn" aria-label="Play / pause">
+                  <svg id="play-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M4 2h3v12H4zM9 2h3v12H9z"/></svg>
+                </button>
+                <span class="player__time" id="time-cur">00:00</span>
+                <div class="player__track" id="track">
+                  <div class="player__fill" id="fill"></div>
+                  <div class="player__handle" id="handle"></div>
+                </div>
+                <span class="player__time" id="time-dur">02:30</span>
+                <label class="player__volume" aria-label="Volume">
+                  <svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M3 5h2l3-3v12L5 11H3zM10 4a4 4 0 0 1 0 8v-1.5a2.5 2.5 0 0 0 0-5z"/></svg>
+                  <input type="range" id="volume" min="0" max="100" value="70" />
+                </label>
+              </div>
+            </canvas>
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <div class="controls__group" role="group" aria-label="Scene">
+              <button class="seg" id="scene-stars" aria-pressed="true">Starfield</button>
+              <button class="seg" id="scene-aurora" aria-pressed="false">Aurora</button>
+              <button class="seg" id="scene-grid"  aria-pressed="false">Tron grid</button>
+            </div>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>How layering works</h3>
+          <p>
+            Each frame draws the scene first (regular canvas ops — gradients, particles, lines),
+            then <code>drawElementImage()</code> stamps the caption and the player chrome on top.
+            Each overlay element keeps its DOM box for clicks: tapping play toggles state, dragging
+            the volume slider works, clicking the track seeks.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const ctx       = canvas.getContext('2d');
+        const caption   = document.getElementById('caption-source');
+        const player    = document.getElementById('player-source');
+        const host      = document.getElementById('canvas-host');
+        const fbHost    = document.getElementById('fallback-host');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+
+        const playBtn  = document.getElementById('play-btn');
+        const playIcon = document.getElementById('play-icon');
+        const track    = document.getElementById('track');
+        const fill     = document.getElementById('fill');
+        const handle   = document.getElementById('handle');
+        const timeCur  = document.getElementById('time-cur');
+        const sceneStars  = document.getElementById('scene-stars');
+        const sceneAurora = document.getElementById('scene-aurora');
+        const sceneGrid   = document.getElementById('scene-grid');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        const state = {
+          playing: true,
+          time: 0,
+          duration: 150,
+          scene: 'stars',
+        };
+        function setPlayIcon() {
+          playIcon.firstElementChild.setAttribute('d', state.playing
+            ? 'M4 2h3v12H4zM9 2h3v12H9z'
+            : 'M4 2v12l10-6z');
+        }
+        playBtn.addEventListener('click', () => { state.playing = !state.playing; setPlayIcon(); });
+        setPlayIcon();
+
+        function fmt(s) {
+          const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+          return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+        }
+
+        track.addEventListener('click', (ev) => {
+          const r = track.getBoundingClientRect();
+          state.time = ((ev.clientX - r.left) / r.width) * state.duration;
+          updateScrub();
+        });
+        function updateScrub() {
+          const pct = (state.time / state.duration) * 100;
+          fill.style.width = `${pct}%`;
+          handle.style.left = `${pct}%`;
+          timeCur.textContent = fmt(state.time);
+        }
+        updateScrub();
+
+        function setPressed(group, on) {
+          for (const b of group) b.setAttribute('aria-pressed', b === on ? 'true' : 'false');
+        }
+        sceneStars .addEventListener('click', () => { state.scene = 'stars';  setPressed([sceneStars, sceneAurora, sceneGrid], sceneStars); });
+        sceneAurora.addEventListener('click', () => { state.scene = 'aurora'; setPressed([sceneStars, sceneAurora, sceneGrid], sceneAurora); });
+        sceneGrid  .addEventListener('click', () => { state.scene = 'grid';   setPressed([sceneStars, sceneAurora, sceneGrid], sceneGrid); });
+
+        // Pre-seed starfield
+        const stars = [];
+        for (let i = 0; i < 250; i++) {
+          stars.push({ x: Math.random(), y: Math.random(), z: Math.random() * 0.9 + 0.1 });
+        }
+
+        function nudge() { caption.style.opacity = caption.style.opacity === '1' ? '0.999999' : '1'; }
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(320, Math.floor(r.width));
+          const h = Math.max(500, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host); resize();
+
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          ctx.reset();
+
+          // Advance media time
+          if (state.playing) {
+            state.time = (state.time + (1 / 60)) % state.duration;
+            updateScrub();
+          }
+          const t = performance.now() / 1000;
+
+          // Scene
+          if (state.scene === 'stars') {
+            const bg = ctx.createRadialGradient(w*0.5, h*0.4, 50, w*0.5, h*0.4, Math.max(w, h));
+            bg.addColorStop(0, '#0c1024');
+            bg.addColorStop(1, '#020308');
+            ctx.fillStyle = bg;
+            ctx.fillRect(0, 0, w, h);
+            for (const s of stars) {
+              const x = ((s.x + t * 0.02 * s.z) % 1) * w;
+              const y = s.y * h;
+              const size = s.z * 2.4;
+              ctx.fillStyle = `rgba(${200 + s.z*55}, ${210 + s.z*45}, 255, ${0.4 + s.z * 0.6})`;
+              ctx.fillRect(x, y, size, size);
+            }
+          } else if (state.scene === 'aurora') {
+            const g = ctx.createLinearGradient(0, 0, 0, h);
+            g.addColorStop(0, '#021428');
+            g.addColorStop(1, '#04081a');
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, w, h);
+            for (let i = 0; i < 5; i++) {
+              const yBase = h * (0.3 + i * 0.08);
+              ctx.beginPath();
+              ctx.moveTo(0, yBase);
+              for (let x = 0; x <= w; x += 12) {
+                const yy = yBase + Math.sin(x * 0.01 + t * 0.6 + i) * 30 + Math.sin(x * 0.03 + t * 0.3) * 12;
+                ctx.lineTo(x, yy);
+              }
+              ctx.lineWidth = 60;
+              const hue = (i * 25 + t * 12) % 360;
+              ctx.strokeStyle = `hsla(${hue}, 70%, 55%, 0.18)`;
+              ctx.stroke();
+            }
+          } else { // grid
+            ctx.fillStyle = '#02050d';
+            ctx.fillRect(0, 0, w, h);
+            ctx.strokeStyle = 'rgba(34,211,238,.35)';
+            ctx.lineWidth = 1;
+            const horizon = h * 0.55;
+            // Vertical lines (perspective)
+            for (let i = -10; i <= 10; i++) {
+              const fx = w/2 + i * w * 0.04;
+              ctx.beginPath();
+              ctx.moveTo(w/2, horizon);
+              ctx.lineTo(fx, h);
+              ctx.stroke();
+            }
+            // Horizontal lines scrolling
+            for (let i = 1; i < 14; i++) {
+              const phase = (i + t * 0.6) % 14;
+              const y = horizon + (phase * phase) * 3;
+              if (y > h) continue;
+              ctx.globalAlpha = Math.min(1, phase / 14 + 0.1);
+              ctx.beginPath();
+              ctx.moveTo(0, y);
+              ctx.lineTo(w, y);
+              ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+          }
+
+          const cardW = player.offsetWidth   || 460;
+          const cardH = player.offsetHeight  || 60;
+          const capW  = caption.offsetWidth  || 460;
+          const capH  = caption.offsetHeight || 40;
+          const playerX = Math.round((w - cardW) / 2);
+          const playerY = h - cardH - 24;
+          const capX = Math.round((w - capW) / 2);
+          const capY = playerY - capH - 18;
+
+          try {
+            // Caption (no hit-test needed)
+            ctx.drawElementImage(caption, capX, capY);
+            // Player UI — interactive, sync the transform back
+            const transform = ctx.drawElementImage(player, playerX, playerY);
+            player.style.transform = transform.toString();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            return;
+          }
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · ${state.scene} · t=${fmt(state.time)}`;
+            fpsT = now; fpsAt = paints;
+          }
+        }
+
+        if (supported) { canvas.onpaint = paint; nudge(); }
+        else mountFallback();
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.append(caption);
+          fbHost.append(player);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const s = document.createElement('strong'); s.textContent = 'drawElementImage() not detected.';
+          const c = document.createElement('code'); c.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(s, ' Enable ', c, ' to composite UI over the scene.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

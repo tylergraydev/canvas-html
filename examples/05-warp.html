@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>05 · Warp & distortion — HTML in Canvas</title>
+    <meta name="description" content="Slice an element into bands and warp each one for a ripple effect." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 620px; }
+      canvas.scene { min-height: 620px; }
+
+      .poster {
+        width: 360px;
+        padding: 28px 26px;
+        background:
+          linear-gradient(135deg, rgba(124,92,255,.25), transparent 60%),
+          linear-gradient(180deg, #14192a, #08090f);
+        border: 1px solid #2a3243;
+        border-radius: 18px;
+        box-shadow: 0 24px 60px -28px rgba(0,0,0,.7);
+        display: flex; flex-direction: column; gap: 14px;
+        color: var(--text);
+        transform-origin: 0 0;
+        position: relative;
+        overflow: hidden;
+      }
+      .poster__eyebrow {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10.5px; letter-spacing: .18em;
+        text-transform: uppercase;
+        color: #c4b5fd;
+      }
+      .poster__title {
+        margin: 0;
+        font-size: 32px; line-height: 1.05;
+        letter-spacing: -.02em;
+        font-weight: 700;
+      }
+      .poster__body { margin: 0; color: var(--text-dim); font-size: 14px; line-height: 1.55; }
+      .poster__row { display: flex; gap: 10px; margin-top: 6px; }
+      .poster__btn {
+        padding: 8px 14px; border-radius: 10px;
+        background: linear-gradient(180deg, #8a6bff, #6b4dff);
+        color: white; border: 0;
+        font: inherit; font-size: 13px; cursor: pointer;
+        box-shadow: 0 6px 18px -6px rgba(124,92,255,.6);
+      }
+      .poster__btn--ghost {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border-strong);
+        box-shadow: none;
+      }
+      .poster__shimmer {
+        position: absolute; inset: 0;
+        background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.06) 50%, transparent 70%);
+        transform: translateX(-100%);
+      }
+      .poster[data-animate="true"] .poster__shimmer {
+        animation: shimmer 3.6s linear infinite;
+      }
+      @keyframes shimmer {
+        to { transform: translateX(100%); }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 05 · Effects</p>
+            <h1 class="example__title">Warp &amp; distortion</h1>
+            <p class="example__intro">
+              The poster is sliced into horizontal bands. Each band gets a sine-wave horizontal
+              offset before <code>drawElementImage()</code> stamps it. The result: a real DOM
+              element rippling like water — and still pixel-perfect text.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · clip + drawElementImage per band</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+            <canvas class="scene" id="scene" layoutsubtree>
+              <article class="poster" id="source" data-animate="true">
+                <div class="poster__shimmer" aria-hidden="true"></div>
+                <span class="poster__eyebrow">Now in canvas</span>
+                <h2 class="poster__title">Pixels you can poke.</h2>
+                <p class="poster__body">Every band you see is the same DOM element stamped at a different offset. Text never goes blurry — it's the actual rendered glyphs every time.</p>
+                <div class="poster__row">
+                  <button class="poster__btn" id="primary-btn">Try the warp</button>
+                  <button class="poster__btn poster__btn--ghost" id="reset-btn">Reset</button>
+                </div>
+              </article>
+            </canvas>
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <label class="slider"><span>Bands</span><input type="range" id="bands" min="6" max="60" value="22" /><span class="slider__val" id="bands-val">22</span></label>
+            <label class="slider"><span>Amplitude</span><input type="range" id="amp" min="0" max="60" value="24" /><span class="slider__val" id="amp-val">24px</span></label>
+            <label class="slider"><span>Frequency</span><input type="range" id="freq" min="1" max="20" value="6" /><span class="slider__val" id="freq-val">6</span></label>
+            <label class="slider"><span>Speed</span><input type="range" id="speed" min="0" max="200" value="80" /><span class="slider__val" id="speed-val">80%</span></label>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>How the bands work</h3>
+          <p>
+            Each band sets a horizontal clip rectangle on the canvas, translates by a sine-wave
+            offset, then calls <code>drawElementImage()</code>. Only the pixels inside that clip
+            survive — the next iteration draws the next band, with a different offset. Stacked,
+            they form a continuous warped image. The DOM hit-box uses the un-warped (centred) copy
+            so buttons still click.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const ctx       = canvas.getContext('2d');
+        const source    = document.getElementById('source');
+        const host      = document.getElementById('canvas-host');
+        const fbHost    = document.getElementById('fallback-host');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+
+        const bandsIn = document.getElementById('bands'), bandsVal = document.getElementById('bands-val');
+        const ampIn   = document.getElementById('amp'),   ampVal   = document.getElementById('amp-val');
+        const freqIn  = document.getElementById('freq'),  freqVal  = document.getElementById('freq-val');
+        const speedIn = document.getElementById('speed'), speedVal = document.getElementById('speed-val');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        const primaryBtn = document.getElementById('primary-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        primaryBtn.addEventListener('click', () => { state.amp = 48; ampIn.value = 48; ampVal.textContent = '48px'; });
+        resetBtn.addEventListener  ('click', () => { state.amp = 0;  ampIn.value = 0;  ampVal.textContent = '0px'; });
+
+        const state = { bands: 22, amp: 24, freq: 6, speed: 0.8 };
+        bandsIn.addEventListener('input', () => { state.bands = +bandsIn.value; bandsVal.textContent = state.bands; });
+        ampIn  .addEventListener('input', () => { state.amp   = +ampIn.value;   ampVal  .textContent = `${state.amp}px`; });
+        freqIn .addEventListener('input', () => { state.freq  = +freqIn.value;  freqVal .textContent = state.freq; });
+        speedIn.addEventListener('input', () => { state.speed = +speedIn.value / 100; speedVal.textContent = `${speedIn.value}%`; });
+
+        function nudge() { source.style.opacity = source.style.opacity === '1' ? '0.999999' : '1'; }
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(320, Math.floor(r.width));
+          const h = Math.max(560, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host); resize();
+
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          ctx.reset();
+
+          // Backdrop
+          const bg = ctx.createLinearGradient(0, 0, 0, h);
+          bg.addColorStop(0, '#0d1220');
+          bg.addColorStop(1, '#06080f');
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          const cardW = source.offsetWidth  || 360;
+          const cardH = source.offsetHeight || 320;
+          const x = Math.round((w - cardW) / 2);
+          const y = Math.round((h - cardH) / 2);
+          const t = performance.now() / 1000 * state.speed;
+
+          try {
+            const bandH = cardH / state.bands;
+            for (let i = 0; i < state.bands; i++) {
+              const bandY = i * bandH;
+              const phase = (bandY / cardH) * state.freq * Math.PI * 2 + t * 2;
+              const offsetX = Math.sin(phase) * state.amp;
+
+              ctx.save();
+              // Clip to this band only
+              ctx.beginPath();
+              ctx.rect(x - 200, y + bandY, cardW + 400, bandH + 1);
+              ctx.clip();
+              // Draw the full element offset horizontally — only the band shows
+              ctx.drawElementImage(source, x + offsetX, y);
+              ctx.restore();
+            }
+
+            // One more un-warped draw, fully transparent (alpha 0), purely to
+            // get the transform back for hit-testing. We position it at the
+            // center so the buttons stay clickable.
+            ctx.save();
+            ctx.globalAlpha = 0;
+            const transform = ctx.drawElementImage(source, x, y);
+            ctx.restore();
+            source.style.transform = transform.toString();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            return;
+          }
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · ${state.bands} bands × ${cardW}×${Math.round(bandH)}`;
+            fpsT = now; fpsAt = paints;
+          }
+        }
+
+        if (supported) { canvas.onpaint = paint; nudge(); }
+        else mountFallback();
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const s = document.createElement('strong'); s.textContent = 'drawElementImage() not detected.';
+          const c = document.createElement('code'); c.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(s, ' Enable ', c, ' to see the warp.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

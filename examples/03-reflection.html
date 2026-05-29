@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>03 · Reflections & mirrors — HTML in Canvas</title>
+    <meta name="description" content="Mirror an interactive panel with a soft falloff." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 620px; }
+      canvas.scene { min-height: 620px; }
+
+      .panel {
+        width: 320px;
+        padding: 22px 22px 18px;
+        background: linear-gradient(180deg, #1a1f2d, #0f131c);
+        border: 1px solid #2a3243;
+        border-radius: 16px;
+        box-shadow: 0 20px 50px -20px rgba(0,0,0,.6);
+        display: flex; flex-direction: column; gap: 14px;
+        font-size: 14px;
+        color: var(--text);
+        transform-origin: 0 0;
+      }
+      .panel__head { display: flex; align-items: center; justify-content: space-between; }
+      .panel__title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .02em; }
+      .panel__avatar {
+        width: 36px; height: 36px; border-radius: 50%;
+        background: conic-gradient(from 180deg, #7c5cff, #22d3ee, #34d399, #7c5cff);
+        box-shadow: 0 0 0 2px rgba(124,92,255,.4);
+      }
+      .panel[data-animate="true"] .panel__avatar {
+        animation: avatarSpin 8s linear infinite;
+      }
+      @keyframes avatarSpin { to { transform: rotate(360deg); } }
+      .panel__row { display: flex; justify-content: space-between; align-items: center; }
+      .panel__row span:first-child { color: var(--text-mute); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+      .panel__row b { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-weight: 500; }
+      .panel__toggle {
+        display: inline-flex; align-items: center; gap: 8px;
+        cursor: pointer; user-select: none;
+      }
+      .panel__switch {
+        position: relative; width: 36px; height: 20px;
+        border-radius: 999px;
+        background: var(--border-strong);
+        transition: background .15s ease;
+      }
+      .panel__switch::after {
+        content: ""; position: absolute; top: 2px; left: 2px;
+        width: 16px; height: 16px; border-radius: 50%;
+        background: var(--text);
+        transition: transform .18s ease;
+      }
+      .panel[data-on="true"] .panel__switch { background: var(--accent); }
+      .panel[data-on="true"] .panel__switch::after { transform: translateX(16px); }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 03 · Effects</p>
+            <h1 class="example__title">Reflections &amp; mirrors</h1>
+            <p class="example__intro">
+              The panel is drawn once upright, then drawn again flipped through a falloff gradient.
+              The upright copy is interactive (toggle the switch). The reflection is pixels.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · drawElementImage ×2 (upright + flipped)</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+            <canvas class="scene" id="scene" layoutsubtree>
+              <article class="panel" id="source" data-animate="true" data-on="true">
+                <div class="panel__head">
+                  <h2 class="panel__title">Mission control</h2>
+                  <div class="panel__avatar"></div>
+                </div>
+                <div class="panel__row"><span>Throttle</span><b>78%</b></div>
+                <div class="panel__row"><span>Altitude</span><b>34,210 ft</b></div>
+                <div class="panel__row"><span>Heading</span><b>284°</b></div>
+                <label class="panel__toggle" id="toggle">
+                  <span class="panel__switch"></span>
+                  <span>Autopilot</span>
+                </label>
+              </article>
+            </canvas>
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <label class="slider"><span>Gap</span><input type="range" id="gap" min="0" max="60" value="14" /><span class="slider__val" id="gap-val">14px</span></label>
+            <label class="slider"><span>Falloff</span><input type="range" id="fall" min="20" max="100" value="55" /><span class="slider__val" id="fall-val">55%</span></label>
+            <label class="slider"><span>Tilt</span><input type="range" id="tilt" min="-15" max="15" value="0" /><span class="slider__val" id="tilt-val">0°</span></label>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>How the mirror works</h3>
+          <p>
+            We call <code>drawElementImage()</code> twice each frame. The first draw is upright and
+            its returned transform is fed back into <code>panel.style.transform</code> for hit-testing.
+            The second draw flips the Y axis via <code>ctx.scale(1, -1)</code> and is masked with a
+            top-to-bottom gradient using <code>destination-in</code> compositing.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const ctx       = canvas.getContext('2d');
+        const source    = document.getElementById('source');
+        const host      = document.getElementById('canvas-host');
+        const fbHost    = document.getElementById('fallback-host');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+        const toggle    = document.getElementById('toggle');
+
+        const gapIn = document.getElementById('gap'), gapVal = document.getElementById('gap-val');
+        const fallIn = document.getElementById('fall'), fallVal = document.getElementById('fall-val');
+        const tiltIn = document.getElementById('tilt'), tiltVal = document.getElementById('tilt-val');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        toggle.addEventListener('click', () => {
+          source.dataset.on = source.dataset.on === 'true' ? 'false' : 'true';
+        });
+
+        const state = { gap: 14, fall: 0.55, tiltDeg: 0 };
+        gapIn .addEventListener('input', () => { state.gap = +gapIn.value; gapVal.textContent = `${state.gap}px`; });
+        fallIn.addEventListener('input', () => { state.fall = +fallIn.value / 100; fallVal.textContent = `${fallIn.value}%`; });
+        tiltIn.addEventListener('input', () => { state.tiltDeg = +tiltIn.value; tiltVal.textContent = `${state.tiltDeg}°`; });
+
+        function nudge() { source.style.opacity = source.style.opacity === '1' ? '0.999999' : '1'; }
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(320, Math.floor(r.width));
+          const h = Math.max(520, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host); resize();
+
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          ctx.reset();
+
+          // Backdrop — radial vignette
+          const bg = ctx.createRadialGradient(w/2, h*0.4, 50, w/2, h*0.4, Math.max(w, h)*0.8);
+          bg.addColorStop(0, '#1a1f2d');
+          bg.addColorStop(1, '#06080d');
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          const cardW = source.offsetWidth  || 320;
+          const cardH = source.offsetHeight || 280;
+          const angle = (state.tiltDeg * Math.PI) / 180;
+          const x = Math.round((w - cardW) / 2);
+          const y = Math.round((h - cardH * 2 - state.gap) / 2);
+
+          try {
+            // Upright copy — this one gets the transform sync.
+            ctx.save();
+            ctx.translate(x + cardW/2, y + cardH/2);
+            ctx.rotate(angle);
+            ctx.translate(-cardW/2, -cardH/2);
+            const t = ctx.drawElementImage(source, 0, 0);
+            ctx.restore();
+            source.style.transform = t.toString();
+
+            // Reflection — flipped, masked with falloff gradient.
+            ctx.save();
+            ctx.translate(x + cardW/2, y + cardH + state.gap + cardH/2);
+            ctx.rotate(angle);
+            ctx.scale(1, -1);
+            ctx.translate(-cardW/2, -cardH/2);
+            ctx.drawElementImage(source, 0, 0);
+
+            // Falloff mask. destination-in keeps only what overlaps with the
+            // gradient's opaque parts.
+            const grad = ctx.createLinearGradient(0, 0, 0, cardH);
+            grad.addColorStop(0, `rgba(0,0,0,0)`);
+            grad.addColorStop(1, `rgba(0,0,0,${state.fall})`);
+            ctx.globalCompositeOperation = 'destination-in';
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, cardW, cardH);
+            ctx.restore();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            return;
+          }
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · ${w}×${h}`;
+            fpsT = now; fpsAt = paints;
+          }
+        }
+
+        if (supported) { canvas.onpaint = paint; nudge(); }
+        else mountFallback();
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const s = document.createElement('strong'); s.textContent = 'drawElementImage() not detected.';
+          const c = document.createElement('code'); c.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(s, ' Enable ', c, ' to see the reflection.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

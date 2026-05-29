@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>15 · 3D login orb — HTML in Canvas</title>
+    <meta name="description" content="A live sign-in form texture-mapped onto the surface of a spinning 3D orb with drawElementImage()." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 640px; }
+      canvas.scene { min-height: 640px; }
+
+      /* The form is captured flat and then warped onto the sphere by the
+         canvas (per-column textured triangles). transform-origin stays at 0,0
+         so the alpha-0 hit-test draw maps the live DOM box cleanly. */
+      .orb-form-wrap {
+        width: 272px;
+        transform-origin: 0 0;
+      }
+      .orb-form {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 26px 24px 22px;
+        border-radius: 22px;
+        /* Semi-transparent so the orb's wireframe glows through the decal —
+           it reads as printed onto the glass surface. */
+        background:
+          radial-gradient(140% 100% at 50% 0%, rgba(124,92,255,.18), transparent 60%),
+          rgba(9,12,20,.66);
+        border: 1px solid rgba(160,180,255,.24);
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,.12),
+          inset 0 0 40px rgba(40,60,110,.25);
+        color: var(--text);
+      }
+      .orb-form__glow {
+        position: absolute;
+        left: 14px; right: 14px; top: 8px; height: 46px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(255,255,255,.18), transparent);
+        filter: blur(6px);
+        pointer-events: none;
+      }
+      .orb-form__head { text-align: center; margin-bottom: 2px; }
+      .orb-form__badge {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10px; letter-spacing: .22em;
+        padding: 3px 10px; border-radius: 999px;
+        background: rgba(34,211,238,.12);
+        color: #7ce8f9;
+        border: 1px solid rgba(34,211,238,.35);
+      }
+      .orb-form__title { margin: 12px 0 2px; font-size: 22px; font-weight: 650; letter-spacing: -.02em; }
+      .orb-form__sub { margin: 0; font-size: 12.5px; color: var(--text-mute); letter-spacing: .02em; }
+
+      .orb-field { display: flex; flex-direction: column; gap: 6px; }
+      .orb-field > span {
+        font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+        color: var(--text-mute);
+      }
+      .orb-field input {
+        background: rgba(4,7,14,.78);
+        border: 1px solid rgba(150,170,230,.28);
+        color: var(--text);
+        padding: 10px 12px; border-radius: 11px;
+        font: inherit; font-size: 14px; outline: none;
+        transition: border-color .14s ease, box-shadow .14s ease, background .14s ease;
+      }
+      .orb-field input::placeholder { color: rgba(160,170,200,.45); }
+      .orb-field input:focus {
+        border-color: var(--accent);
+        background: rgba(8,12,24,.9);
+        box-shadow: 0 0 0 3px rgba(124,92,255,.28);
+      }
+
+      .orb-check {
+        display: flex; align-items: center; gap: 9px;
+        font-size: 12.5px; color: var(--text-dim);
+        cursor: pointer; user-select: none;
+      }
+      .orb-check input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+
+      .orb-submit {
+        margin-top: 2px;
+        padding: 12px 14px;
+        border: 0; border-radius: 12px;
+        font: inherit; font-size: 14px; font-weight: 600;
+        color: #f4f1ff;
+        background: linear-gradient(180deg, #8a6bff, #6b4dff);
+        cursor: pointer;
+        box-shadow: 0 8px 22px -8px rgba(124,92,255,.7), inset 0 1px 0 rgba(255,255,255,.25);
+      }
+      .orb-submit:hover { filter: brightness(1.06); }
+      .orb-submit:active { transform: translateY(1px); }
+
+      .orb-msg {
+        margin: 2px 0 0; min-height: 1.3em;
+        font-size: 12.5px; text-align: center; color: var(--text-mute);
+      }
+      .orb-msg[data-tone="ok"]  { color: #7ee2b8; }
+      .orb-msg[data-tone="bad"] { color: #fca5a5; }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 15 · Interactive</p>
+            <h1 class="example__title">3D login orb</h1>
+            <p class="example__intro">
+              A real sign-in form, <em>texture-mapped onto the surface of a spinning 3D sphere</em>.
+              The form is captured flat by <code>drawElementImage()</code>, then the canvas warps it
+              across a mesh that rides the rotating, tilted ball — so it curves, shades, and wraps
+              around the horizon with the wireframe. Hit <strong>Rest</strong> to bring it to the
+              front and actually type. It makes no sense. It's great.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · sphere-mapped drawElementImage (textured triangles)</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+
+            <canvas class="scene" id="scene" layoutsubtree>
+              <div class="orb-form-wrap" id="source">
+                <form class="orb-form" id="card">
+                  <div class="orb-form__glow" aria-hidden="true"></div>
+                  <header class="orb-form__head">
+                    <span class="orb-form__badge">SECURE</span>
+                    <h2 class="orb-form__title">Sign in</h2>
+                    <p class="orb-form__sub">to the orb</p>
+                  </header>
+                  <label class="orb-field">
+                    <span>Email</span>
+                    <input id="email" type="email" placeholder="you@orb.dev" autocomplete="username" />
+                  </label>
+                  <label class="orb-field">
+                    <span>Password</span>
+                    <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+                  </label>
+                  <label class="orb-check">
+                    <input id="remember" type="checkbox" />
+                    <span>Keep me in orbit</span>
+                  </label>
+                  <button class="orb-submit" id="submit" type="submit">Enter the orb</button>
+                  <p class="orb-msg" id="msg" role="status"></p>
+                </form>
+              </div>
+            </canvas>
+
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <div class="controls__group" role="group" aria-label="Spin">
+              <button class="seg" id="spin-on"  aria-pressed="true">Auto-spin</button>
+              <button class="seg" id="spin-off" aria-pressed="false">Rest</button>
+            </div>
+            <label class="slider">
+              <span>Speed</span>
+              <input type="range" id="speed" min="0" max="100" value="42" />
+              <span class="slider__val" id="speed-val">0.50</span>
+            </label>
+            <label class="slider">
+              <span>Axis tilt</span>
+              <input type="range" id="tilt" min="-45" max="45" value="-20" />
+              <span class="slider__val" id="tilt-val">-20°</span>
+            </label>
+            <span class="stat" id="stat">—</span>
+            <div class="controls__spacer"></div>
+            <button class="btn btn--ghost" id="snapshot">Save snapshot (PNG)</button>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>How the form gets onto the ball</h3>
+          <p>
+            The orb body, the rotating wireframe (meridians + parallels projected from real 3D
+            coordinates), and the glass highlight are all native canvas 2D. The form is laid out as
+            a flat DOM subtree. To paint it <em>onto</em> the sphere we treat it as a texture: a
+            patch of the sphere's surface is divided into columns, each column's corners are rotated
+            and tilted with the globe and projected to the screen, and the matching slice of the
+            form is drawn into that quad as two affine-mapped triangles via
+            <code>drawElementImage()</code>. Columns facing away from the viewer are culled, so the
+            form curves around the limb and disappears over the horizon exactly like printing on a
+            real ball. A final transparent draw at the patch centre pins the live DOM hit-box so the
+            fields stay typeable while the form faces front.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas   = document.getElementById('scene');
+        const ctx      = canvas.getContext('2d');
+        const source   = document.getElementById('source');
+        const card     = document.getElementById('card');
+        const host     = document.getElementById('canvas-host');
+        const fbHost   = document.getElementById('fallback-host');
+        const stat     = document.getElementById('stat');
+        const notice   = document.getElementById('trial-notice');
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+        const snapBtn  = document.getElementById('snapshot');
+
+        const emailIn = document.getElementById('email');
+        const passIn  = document.getElementById('password');
+        const submit  = document.getElementById('submit');
+        const msg     = document.getElementById('msg');
+
+        const spinOn  = document.getElementById('spin-on');
+        const spinOff = document.getElementById('spin-off');
+        const speedIn = document.getElementById('speed'), speedVal = document.getElementById('speed-val');
+        const tiltIn  = document.getElementById('tilt'),  tiltVal  = document.getElementById('tilt-val');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        function showError(message, where) {
+          notice.hidden = false;
+          notice.dataset.tone = 'error';
+          notice.textContent = '';
+          const strong = document.createElement('strong');
+          strong.textContent = `Runtime error in ${where}: `;
+          const code = document.createElement('code');
+          code.textContent = message;
+          notice.append(strong, code);
+          setDiag('bad', `error in ${where}`);
+        }
+        window.addEventListener('error', (e) => showError(e.message || String(e.error), 'window'));
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        // ── Sign-in behaviour (no real auth — it's a demo) ────────────
+        card.addEventListener('submit', (ev) => {
+          ev.preventDefault();
+          if (emailIn.value.trim() && passIn.value) {
+            msg.dataset.tone = 'ok';
+            msg.textContent = 'Welcome back ✓ entering orbit…';
+          } else {
+            msg.dataset.tone = 'bad';
+            msg.textContent = 'Enter an email and password to continue.';
+          }
+        });
+
+        // ── State ─────────────────────────────────────────────────────
+        const state = {
+          autoSpin: true,
+          speed: 0.50,                       // radians / second
+          tiltRad: -20 * Math.PI / 180,
+          spin: 0.0,
+        };
+        function setPressed(group, on) {
+          for (const b of group) b.setAttribute('aria-pressed', b === on ? 'true' : 'false');
+        }
+        spinOn.addEventListener('click', () => {
+          state.autoSpin = true; setPressed([spinOn, spinOff], spinOn);
+          startDriver();
+        });
+        spinOff.addEventListener('click', () => {
+          state.autoSpin = false; setPressed([spinOn, spinOff], spinOff);
+          stopDriver();
+          // Snap the decal to face the viewer so it can be used to sign in.
+          state.spin = Math.round(state.spin / (Math.PI * 2)) * Math.PI * 2;
+          nudge();
+          stat.textContent = 'rest · facing front';
+        });
+        speedIn.addEventListener('input', () => {
+          state.speed = (+speedIn.value / 100) * 1.2;
+          speedVal.textContent = state.speed.toFixed(2);
+          nudge();
+        });
+        tiltIn.addEventListener('input', () => {
+          state.tiltRad = (+tiltIn.value) * Math.PI / 180;
+          tiltVal.textContent = `${tiltIn.value}°`;
+          nudge();
+        });
+
+        // ── Globe wireframe geometry (unit sphere, sampled once) ──────
+        const MERIDIANS = 14, PARALLELS = 7, SAMP_LAT = 40, SAMP_LON = 60;
+        const onSphere = (phi, theta) => [
+          Math.cos(phi) * Math.sin(theta),
+          Math.sin(phi),
+          Math.cos(phi) * Math.cos(theta),
+        ];
+        const meridians = [];
+        for (let i = 0; i < MERIDIANS; i++) {
+          const theta = (i / MERIDIANS) * Math.PI * 2;
+          const line = [];
+          for (let j = 0; j <= SAMP_LAT; j++) line.push(onSphere(-Math.PI / 2 + (j / SAMP_LAT) * Math.PI, theta));
+          meridians.push(line);
+        }
+        const parallels = [];
+        for (let i = 1; i <= PARALLELS; i++) {
+          const phi = -Math.PI / 2 + (i / (PARALLELS + 1)) * Math.PI;
+          const line = [];
+          for (let j = 0; j <= SAMP_LON; j++) line.push(onSphere(phi, (j / SAMP_LON) * Math.PI * 2));
+          parallels.push(line);
+        }
+
+        // Rotate a unit-sphere point by the current spin (about Y) then tilt
+        // (about X), and project orthographically. Returns [screenX, screenY, z].
+        function makeProjector(cx, cy, R) {
+          const cs = Math.cos(state.spin), sn = Math.sin(state.spin);
+          const ct = Math.cos(state.tiltRad), st = Math.sin(state.tiltRad);
+          return (phi, theta) => {
+            let x = Math.cos(phi) * Math.sin(theta);
+            let y = Math.sin(phi);
+            let z = Math.cos(phi) * Math.cos(theta);
+            const sx = x * cs + z * sn, sz = -x * sn + z * cs;       // spin about Y
+            x = sx; z = sz;
+            const ty = y * ct - z * st, tz = y * st + z * ct;        // tilt about X
+            y = ty; z = tz;
+            return [cx + R * x, cy - R * y, z];
+          };
+        }
+
+        function drawWire(cx, cy, R) {
+          const cs = Math.cos(state.spin), sn = Math.sin(state.spin);
+          const ct = Math.cos(state.tiltRad), st = Math.sin(state.tiltRad);
+          const proj = (p) => {
+            let x = p[0], y = p[1], z = p[2];
+            const sx = x * cs + z * sn, sz = -x * sn + z * cs; x = sx; z = sz;
+            const ty = y * ct - z * st, tz = y * st + z * ct; y = ty; z = tz;
+            return [cx + R * x, cy - R * y, z];
+          };
+          const lines = meridians.concat(parallels);
+          const passes = [
+            { test: (z) => z <= 0, stroke: 'rgba(120,150,230,.10)', w: 0.8 },
+            { test: (z) => z >  0, stroke: 'rgba(150,200,255,.5)',  w: 1.1 },
+          ];
+          for (const pass of passes) {
+            ctx.beginPath();
+            for (const line of lines) {
+              let prev = proj(line[0]);
+              for (let k = 1; k < line.length; k++) {
+                const cur = proj(line[k]);
+                if (pass.test((prev[2] + cur[2]) / 2)) { ctx.moveTo(prev[0], prev[1]); ctx.lineTo(cur[0], cur[1]); }
+                prev = cur;
+              }
+            }
+            ctx.strokeStyle = pass.stroke;
+            ctx.lineWidth = pass.w;
+            ctx.stroke();
+          }
+        }
+
+        function drawBody(cx, cy, R) {
+          const body = ctx.createRadialGradient(cx - R * 0.4, cy - R * 0.45, R * 0.05, cx, cy, R);
+          body.addColorStop(0,    'rgba(58,80,120,.7)');
+          body.addColorStop(0.55, 'rgba(18,26,46,.62)');
+          body.addColorStop(1,    'rgba(3,5,11,.9)');
+          ctx.beginPath();
+          ctx.arc(cx, cy, R, 0, Math.PI * 2);
+          ctx.fillStyle = body;
+          ctx.fill();
+        }
+
+        // Affine-map a source triangle (element pixels) onto a destination
+        // screen triangle, clipping so only that slice of the form shows.
+        function drawTexTri(s0, s1, s2, d0, d1, d2) {
+          const den = (s1[0] - s0[0]) * (s2[1] - s0[1]) - (s2[0] - s0[0]) * (s1[1] - s0[1]);
+          if (Math.abs(den) < 1e-6) return;
+          const a = ((d1[0] - d0[0]) * (s2[1] - s0[1]) - (d2[0] - d0[0]) * (s1[1] - s0[1])) / den;
+          const c = ((d2[0] - d0[0]) * (s1[0] - s0[0]) - (d1[0] - d0[0]) * (s2[0] - s0[0])) / den;
+          const b = ((d1[1] - d0[1]) * (s2[1] - s0[1]) - (d2[1] - d0[1]) * (s1[1] - s0[1])) / den;
+          const d = ((d2[1] - d0[1]) * (s1[0] - s0[0]) - (d1[1] - d0[1]) * (s2[0] - s0[0])) / den;
+          const e = d0[0] - a * s0[0] - c * s0[1];
+          const f = d0[1] - b * s0[0] - d * s0[1];
+          // Inflate the clip ~0.8px outward from the centroid so adjacent
+          // triangles overlap and sub-pixel anti-alias seams don't show.
+          const gx = (d0[0] + d1[0] + d2[0]) / 3, gy = (d0[1] + d1[1] + d2[1]) / 3;
+          const grow = (p) => { const dx = p[0] - gx, dy = p[1] - gy; const m = Math.hypot(dx, dy) || 1; const k = (m + 0.8) / m; return [gx + dx * k, gy + dy * k]; };
+          const c0 = grow(d0), c1 = grow(d1), c2 = grow(d2);
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(c0[0], c0[1]); ctx.lineTo(c1[0], c1[1]); ctx.lineTo(c2[0], c2[1]); ctx.closePath();
+          ctx.clip();
+          ctx.setTransform(a, b, c, d, e, f);
+          ctx.drawElementImage(source, 0, 0);
+          ctx.restore();
+        }
+
+        // Map the form onto a patch of the sphere centred on the front
+        // meridian. Also sets the live DOM hit-box.
+        const COLS = 36;
+        function drawDecal(cx, cy, R) {
+          const fw = source.offsetWidth  || 272;
+          const fh = source.offsetHeight || 380;
+          const TH = fw / R;                       // longitude span of the patch
+          const PH = Math.min(fh / R, 1.5);        // latitude span of the patch
+          const project = makeProjector(cx, cy, R);
+
+          for (let i = 0; i < COLS; i++) {
+            const u0 = i / COLS, u1 = (i + 1) / COLS;
+            const th0 = (u0 - 0.5) * TH, th1 = (u1 - 0.5) * TH;
+            const TL = project(PH / 2, th0), TR = project(PH / 2, th1);
+            const BL = project(-PH / 2, th0), BR = project(-PH / 2, th1);
+            const az = (TL[2] + TR[2] + BL[2] + BR[2]) / 4;
+            if (az <= 0.02) continue;              // column faces away — cull
+
+            const sx0 = u0 * fw, sx1 = u1 * fw;
+            drawTexTri([sx0, 0], [sx1, 0], [sx0, fh], TL, TR, BL);
+            drawTexTri([sx1, 0], [sx1, fh], [sx0, fh], TR, BR, BL);
+          }
+
+          // Hit-test geometry: a transparent flat draw at the patch centre.
+          const C = project(0, 0);
+          if (C[2] > 0.22) {
+            const lm = project(0, -TH / 2), rm = project(0, TH / 2);
+            const tm = project(PH / 2, 0), bm = project(-PH / 2, 0);
+            const hS = Math.hypot(rm[0] - lm[0], rm[1] - lm[1]) / fw || 0.001;
+            const vS = Math.hypot(bm[0] - tm[0], bm[1] - tm[1]) / fh || 0.001;
+            ctx.save();
+            ctx.globalAlpha = 0;
+            ctx.translate(C[0], C[1]);
+            ctx.scale(hS, vS);
+            let tf;
+            try { tf = ctx.drawElementImage(source, -fw / 2, -fh / 2); } catch (err) { showError(err.message, 'drawElementImage'); }
+            ctx.restore();
+            if (tf) source.style.transform = tf.toString();
+            source.style.pointerEvents = 'auto';
+          } else {
+            source.style.transform = 'translate(-99999px,-99999px)';
+            source.style.pointerEvents = 'none';
+          }
+        }
+
+        // Smooth spherical limb-darkening over the whole orb — shades the
+        // decal's curving edges (and the body) without per-column banding.
+        function limbShade(cx, cy, R) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, R, 0, Math.PI * 2);
+          ctx.clip();
+          const g = ctx.createRadialGradient(cx - R * 0.34, cy - R * 0.4, R * 0.12, cx, cy, R * 1.04);
+          g.addColorStop(0,   'rgba(0,0,0,0)');
+          g.addColorStop(0.62,'rgba(0,0,0,.14)');
+          g.addColorStop(1,   'rgba(2,4,10,.62)');
+          ctx.fillStyle = g;
+          ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+          ctx.restore();
+        }
+
+        function drawGlass(cx, cy, R) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, R, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.globalCompositeOperation = 'screen';
+          const hl = ctx.createRadialGradient(cx - R * 0.42, cy - R * 0.52, 2, cx - R * 0.42, cy - R * 0.52, R * 0.62);
+          hl.addColorStop(0, 'rgba(255,255,255,.42)');
+          hl.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = hl;
+          ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+          ctx.restore();
+
+          ctx.save();
+          ctx.globalCompositeOperation = 'screen';
+          ctx.beginPath();
+          ctx.arc(cx, cy, R - 1, Math.PI * 1.05, Math.PI * 1.7);
+          ctx.strokeStyle = 'rgba(190,215,255,.4)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // ── Layout ────────────────────────────────────────────────────
+        function geometry() {
+          const w = canvas.width, h = canvas.height;
+          return { w, h, cx: w / 2, cy: h * 0.47, R: Math.min(252, (Math.min(w, h) - 130) / 2) };
+        }
+        function nudge() { source.style.opacity = source.style.opacity === '1' ? '0.999999' : '1'; }
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(360, Math.floor(r.width));
+          const h = Math.max(620, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host);
+        resize();
+
+        // ── Render ────────────────────────────────────────────────────
+        let last = performance.now();
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+
+        function backdrop(w, h, cx, cy, R) {
+          const bg = ctx.createRadialGradient(cx, cy, R * 0.3, cx, cy, Math.max(w, h) * 0.75);
+          bg.addColorStop(0, '#0c1020');
+          bg.addColorStop(1, '#05060c');
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          ctx.save();
+          ctx.fillStyle = 'rgba(0,0,0,.55)';
+          ctx.filter = 'blur(26px)';
+          ctx.beginPath();
+          ctx.ellipse(cx, cy + R + 30, R * 0.82, R * 0.16, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        function render(withForm) {
+          const { w, h, cx, cy, R } = geometry();
+          const now = performance.now();
+          const dt = Math.min(0.1, (now - last) / 1000);
+          last = now;
+          if (state.autoSpin) state.spin += dt * state.speed;
+
+          ctx.reset();
+          backdrop(w, h, cx, cy, R);
+          drawBody(cx, cy, R);
+          drawWire(cx, cy, R);
+          if (withForm) {
+            try { drawDecal(cx, cy, R); }
+            catch (err) { showError(err.message, 'drawDecal'); return; }
+          }
+          limbShade(cx, cy, R);
+          drawGlass(cx, cy, R);
+
+          paints++;
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            const deg = ((state.spin * 180 / Math.PI) % 360 + 360) % 360;
+            stat.textContent = `${fps.toFixed(0)} fps · spin ${deg.toFixed(0)}°`;
+            fpsT = now; fpsAt = paints;
+          }
+        }
+
+        // Continuous paint driver: flipping the source's opacity every frame
+        // reliably re-fires onpaint at compositor cadence (mirrors example 11),
+        // and keeps spinning even while the decal is rotated out of view.
+        let driverOn = false, drvFlag = false;
+        function driverStep() {
+          if (!driverOn) return;
+          drvFlag = !drvFlag;
+          source.style.opacity = drvFlag ? '1' : '0.999999';
+          requestAnimationFrame(driverStep);
+        }
+        function startDriver() { if (!driverOn) { driverOn = true; requestAnimationFrame(driverStep); } }
+        function stopDriver()  { driverOn = false; }
+
+        if (supported) {
+          canvas.onpaint = () => render(true);
+          startDriver();
+          nudge();
+        } else {
+          mountFallback();
+          const loop = () => { render(false); requestAnimationFrame(loop); };
+          requestAnimationFrame(loop);
+        }
+
+        // ── Snapshot ──────────────────────────────────────────────────
+        snapBtn.addEventListener('click', () => {
+          const link = document.createElement('a');
+          link.download = `login-orb-${Date.now()}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        });
+
+        // ── Fallback ──────────────────────────────────────────────────
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong');
+          strong.textContent = 'drawElementImage() not detected.';
+          const code = document.createElement('code');
+          code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(
+            strong,
+            ' Enable ', code,
+            ' (Chrome 148+) to map the form onto the orb. The orb still spins; the form is shown as plain DOM for now.',
+          );
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

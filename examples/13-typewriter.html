@@ -1,0 +1,972 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>13 · Typewriter — HTML in Canvas</title>
+    <meta name="description" content="WebGL typewriter — paper wraps around a 3D platen via texElementImage2D." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host {
+        min-height: 760px;
+        background:
+          radial-gradient(900px 600px at 50% -20%, rgba(251,191,36,.08), transparent 70%),
+          linear-gradient(180deg, #1a1108 0%, #0b0905 100%);
+      }
+      canvas.scene { min-height: 760px; }
+
+      /* ────────── Typewriter assembly ────────── */
+      .typewriter {
+        position: relative;
+        width: 720px;
+        margin: 0 auto;              /* centre inside the canvas-host */
+        font-family: "Inter", system-ui, sans-serif;
+        transform-origin: 0 0;
+      }
+      .typewriter__brand {
+        margin: 0 auto 14px;
+        text-align: center;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 10.5px;
+        letter-spacing: .25em;
+        color: #fde68a;
+        text-transform: uppercase;
+        opacity: 0.7;
+      }
+
+      /* The WebGL stage where the paper + platen are rendered in 3D. */
+      .paper-stage {
+        position: relative;
+        width: 100%;
+        height: 360px;
+        background: transparent;
+        margin: 0 auto 0;
+      }
+      canvas.platen-canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        cursor: text;
+        z-index: 1;
+      }
+      /* The textarea is a child of the WebGL canvas (layoutsubtree).
+         It's positioned far off-screen so the user never sees the flat copy,
+         but its rendered state is uploaded to the GPU via texElementImage2D
+         every frame and shown wrapped on the 3D paper. */
+      .paper-input {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 600px;
+        height: 1400px;
+        padding: 28px 32px;
+        box-sizing: border-box;
+        background: linear-gradient(180deg, #faf4e3 0%, #f6efd8 100%);
+        background-image:
+          repeating-linear-gradient(transparent 0 23px, rgba(220,180,150,.20) 23px 24px),
+          linear-gradient(180deg, #faf4e3 0%, #f6efd8 100%);
+        color: #1a1208;
+        font-family: "JetBrains Mono", ui-monospace, "Courier New", monospace;
+        font-size: 18px;
+        line-height: 24px;
+        border: 0;
+        outline: none;
+        resize: none;
+        white-space: pre;
+        overflow: hidden;
+        caret-color: transparent;
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .paper-input::placeholder { color: rgba(74,48,24,.35); font-style: italic; }
+
+      /* ────────── Body + keys + bell (DOM) ────────── */
+      .body-mech {
+        position: relative;
+        height: 36px;
+        background: linear-gradient(180deg, #2e5d3a 0%, #1a3a22 60%, #0c1f14 100%);
+        border-radius: 6px 6px 0 0;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 6px 12px rgba(0,0,0,.4);
+        display: flex; align-items: center; justify-content: center; gap: 18px;
+        z-index: 2;
+      }
+      .badge-logo {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 9px;
+        letter-spacing: .3em;
+        color: #c4e0c8;
+        text-transform: uppercase;
+        opacity: 0.7;
+      }
+
+      .keys {
+        background: linear-gradient(180deg, #234229 0%, #122017 100%);
+        padding: 14px 18px 18px;
+        border-radius: 0 0 14px 14px;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,.4), 0 12px 24px -10px rgba(0,0,0,.6);
+        display: flex; flex-direction: column; gap: 8px;
+        position: relative;
+        z-index: 2;
+      }
+      .keys__row { display: flex; justify-content: center; gap: 8px; }
+      .keys__row--shift  { padding-left: 24px; }
+      .keys__row--bottom { padding-left: 56px; }
+      .key {
+        width: 46px; height: 46px;
+        padding: 0;
+        border-radius: 50%;
+        border: 0;
+        background: radial-gradient(circle at 50% 30%, #353535 0%, #1a1a1a 70%, #0a0a0a 100%);
+        color: #f0e8d8;
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 700;
+        font-size: 15px;
+        text-transform: uppercase;
+        cursor: pointer;
+        box-shadow:
+          inset 0 2px 0 rgba(255,255,255,.15),
+          inset 0 -3px 4px rgba(0,0,0,.5),
+          0 3px 0 #050505,
+          0 5px 8px rgba(0,0,0,.4);
+        transition: transform .06s ease, box-shadow .06s ease;
+      }
+      .key:hover { background: radial-gradient(circle at 50% 30%, #404040, #1f1f1f 70%, #0a0a0a 100%); }
+      .key:active, .key--pressed {
+        transform: translateY(3px);
+        box-shadow:
+          inset 0 2px 0 rgba(255,255,255,.10),
+          inset 0 -1px 2px rgba(0,0,0,.5),
+          0 1px 0 #050505;
+      }
+      .key--wide { width: auto; min-width: 92px; padding: 0 14px; border-radius: 24px; font-size: 11px; letter-spacing: .14em; }
+      .key--space { min-width: 280px; }
+
+      /* The bell hovers to the right of the paper stage. */
+      .bell-area {
+        position: absolute;
+        right: -8px;
+        top: 30px;
+        z-index: 4;
+        text-align: center;
+        pointer-events: none;
+      }
+      .bell {
+        width: 44px; height: 44px;
+        margin: 0 auto;
+        background: radial-gradient(circle at 35% 30%, #fde68a 0%, #d97706 65%, #78350f 100%);
+        border-radius: 50% 50% 38% 38% / 60% 60% 40% 40%;
+        position: relative;
+        box-shadow: inset -4px -4px 6px rgba(0,0,0,.3), inset 4px 4px 4px rgba(255,255,255,.5);
+        transform-origin: 50% 0%;
+      }
+      .bell::after {
+        content: ""; position: absolute;
+        bottom: -6px; left: 50%;
+        width: 8px; height: 8px;
+        background: #78350f;
+        border-radius: 50%;
+        transform: translateX(-50%);
+      }
+      .bell--ring { animation: bellShake 0.7s ease-out; }
+      @keyframes bellShake {
+        0% { transform: rotate(0deg); }
+        15% { transform: rotate(-22deg); }
+        30% { transform: rotate(18deg); }
+        45% { transform: rotate(-14deg); }
+        60% { transform: rotate(10deg); }
+        75% { transform: rotate(-6deg); }
+        100% { transform: rotate(0deg); }
+      }
+      .ding {
+        margin-top: 6px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .08em;
+        color: #fbbf24;
+        text-shadow: 0 0 8px rgba(251,191,36,.5);
+        opacity: 0;
+        transform: scale(0.85);
+        pointer-events: none;
+        text-transform: uppercase;
+      }
+      .ding--show { animation: dingPop 0.7s ease-out; }
+      @keyframes dingPop {
+        0% { opacity: 0; transform: scale(.7) translateY(0); }
+        20% { opacity: 1; transform: scale(1.15) translateY(-4px); }
+        80% { opacity: 1; transform: scale(1) translateY(-4px); }
+        100% { opacity: 0; transform: scale(1) translateY(-8px); }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 13 · Interactive</p>
+            <h1 class="example__title">Typewriter</h1>
+            <p class="example__intro">
+              The paper is rendered in WebGL via <code>gl.texElementImage2D()</code>, wrapped
+              around a 3D platen. Type, and the cylinder rotates — your text rolls up over the
+              top of the platen, curving with the geometry. Real DOM input behind it all.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">WebGL2 · texElementImage2D + cylinder mesh</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+
+            <div class="typewriter" id="source">
+              <div class="typewriter__brand">Underwood · Model HTML</div>
+
+              <div class="paper-stage" id="paper-stage">
+                <canvas class="platen-canvas" id="platen" layoutsubtree>
+                  <textarea class="paper-input" id="paper" spellcheck="false" autocomplete="off"
+                            wrap="off"
+                            placeholder="Click here and type…"></textarea>
+                </canvas>
+                <div class="bell-area">
+                  <div class="bell" id="bell"></div>
+                  <div class="ding" id="ding">Ding!</div>
+                </div>
+              </div>
+
+              <div class="body-mech">
+                <span class="badge-logo">·  ·  ·</span>
+                <span class="badge-logo">HTML&nbsp;IN&nbsp;CANVAS</span>
+                <span class="badge-logo">·  ·  ·</span>
+              </div>
+
+              <div class="keys" id="keys">
+                <div class="keys__row">
+                  <button class="key" data-char="q">Q</button>
+                  <button class="key" data-char="w">W</button>
+                  <button class="key" data-char="e">E</button>
+                  <button class="key" data-char="r">R</button>
+                  <button class="key" data-char="t">T</button>
+                  <button class="key" data-char="y">Y</button>
+                  <button class="key" data-char="u">U</button>
+                  <button class="key" data-char="i">I</button>
+                  <button class="key" data-char="o">O</button>
+                  <button class="key" data-char="p">P</button>
+                </div>
+                <div class="keys__row keys__row--shift">
+                  <button class="key" data-char="a">A</button>
+                  <button class="key" data-char="s">S</button>
+                  <button class="key" data-char="d">D</button>
+                  <button class="key" data-char="f">F</button>
+                  <button class="key" data-char="g">G</button>
+                  <button class="key" data-char="h">H</button>
+                  <button class="key" data-char="j">J</button>
+                  <button class="key" data-char="k">K</button>
+                  <button class="key" data-char="l">L</button>
+                </div>
+                <div class="keys__row keys__row--bottom">
+                  <button class="key" data-char="z">Z</button>
+                  <button class="key" data-char="x">X</button>
+                  <button class="key" data-char="c">C</button>
+                  <button class="key" data-char="v">V</button>
+                  <button class="key" data-char="b">B</button>
+                  <button class="key" data-char="n">N</button>
+                  <button class="key" data-char="m">M</button>
+                  <button class="key" data-char=",">,</button>
+                  <button class="key" data-char=".">.</button>
+                </div>
+                <div class="keys__row">
+                  <button class="key key--wide" data-char="\b" data-special="back">⌫ Back</button>
+                  <button class="key key--wide key--space" data-char=" ">space</button>
+                  <button class="key key--wide" data-char="\n" data-special="return">↵ Return</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <label class="slider"><span>Roll speed</span><input type="range" id="roll" min="50" max="900" value="350" /><span class="slider__val" id="roll-val">350ms</span></label>
+            <label class="slider"><span>Cylinder radius</span><input type="range" id="radius" min="40" max="120" value="70" /><span class="slider__val" id="radius-val">70</span></label>
+            <button class="seg" id="clear" style="border:1px solid var(--border); padding:7px 12px; border-radius:8px; cursor:pointer;">Clear page</button>
+            <button class="seg" id="demo"  style="border:1px solid var(--border); padding:7px 12px; border-radius:8px; cursor:pointer;">Demo type</button>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>How the 3D rolling works</h3>
+          <p>
+            Every frame, <code>gl.texElementImage2D()</code> uploads the textarea's rendered
+            pixels into a GPU texture. A subdivided quad mesh wraps the texture around an
+            invisible cylinder — the vertex shader takes each <code>(u, v)</code> on the paper
+            and turns it into a position on the cylindrical surface. As lines accumulate, the
+            mesh's wrap angle increases, so older lines visibly arc back over the platen.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        // ── DOM refs ─────────────────────────────────────────────────
+        const canvas    = document.getElementById('platen');
+        const paper     = document.getElementById('paper');
+        const stage     = document.getElementById('paper-stage');
+        const bell      = document.getElementById('bell');
+        const ding      = document.getElementById('ding');
+        const keys      = document.getElementById('keys');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+
+        const rollIn   = document.getElementById('roll'),   rollVal   = document.getElementById('roll-val');
+        const radiusIn = document.getElementById('radius'), radiusVal = document.getElementById('radius-val');
+        const clearBtn = document.getElementById('clear');
+        const demoBtn  = document.getElementById('demo');
+
+        // ── Support detection ────────────────────────────────────────
+        const gl = canvas.getContext('webgl2', { antialias: true, premultipliedAlpha: false });
+        const hasGL = !!gl;
+        const hasTexElement = hasGL && typeof gl.texElementImage2D === 'function';
+
+        function setDiag(state, text) { diag.dataset.state = state; diagText.textContent = text; }
+        if (!hasGL) {
+          setDiag('bad', 'WebGL2 not available');
+          notice.hidden = false;
+          notice.dataset.tone = 'error';
+          notice.textContent = 'WebGL2 is required but not available in this browser.';
+          return;
+        }
+        if (!hasTexElement) {
+          setDiag('bad', 'gl.texElementImage2D() missing');
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const s = document.createElement('strong'); s.textContent = 'texElementImage2D() not detected.';
+          const c = document.createElement('code'); c.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(s, ' Enable ', c, ' (Chrome 148+ with the canvas-draw-element flag) to see the 3D paper.');
+        } else {
+          setDiag('ok', 'WebGL2 + texElementImage2D ready');
+        }
+
+        // ── State ────────────────────────────────────────────────────
+        const state = {
+          margin: 40,
+          prevLineLen: 0,
+          rollMs: 350,
+          radiusPx: 70,        // cylinder radius in CSS pixels
+          targetRollLine: 0,   // line we're easing toward
+          currentRollLine: 0,  // smoothed line index
+          lastT: performance.now(),
+        };
+        rollIn.addEventListener('input', () => { state.rollMs = +rollIn.value; rollVal.textContent = `${state.rollMs}ms`; });
+        radiusIn.addEventListener('input', () => { state.radiusPx = +radiusIn.value; radiusVal.textContent = state.radiusPx; });
+
+        // ── Key index for visual depress on physical typing ──────────
+        const keyByChar = new Map();
+        for (const btn of keys.querySelectorAll('.key')) {
+          const ch = btn.dataset.char;
+          if (ch) keyByChar.set(ch, btn);
+        }
+        function pressKey(ch) {
+          const btn = keyByChar.get(ch.toLowerCase());
+          if (!btn) return;
+          btn.classList.add('key--pressed');
+          setTimeout(() => btn.classList.remove('key--pressed'), 110);
+        }
+
+        // ── Bell / margin handling ───────────────────────────────────
+        function currentLineLen() {
+          const v = paper.value;
+          const nl = v.lastIndexOf('\n');
+          return nl < 0 ? v.length : v.length - nl - 1;
+        }
+        function ringBell() {
+          bell.classList.remove('bell--ring');
+          ding.classList.remove('ding--show');
+          void bell.offsetWidth;
+          bell.classList.add('bell--ring');
+          ding.classList.add('ding--show');
+        }
+
+        // ── Input handling ───────────────────────────────────────────
+        paper.addEventListener('input', () => {
+          let len = currentLineLen();
+          if (state.prevLineLen < state.margin && len >= state.margin) ringBell();
+          if (len > state.margin) {
+            // Auto-wrap at margin (force a newline)
+            const pos = paper.selectionStart;
+            const value = paper.value;
+            const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
+            const breakPos = lineStart + state.margin;
+            paper.value = value.substring(0, breakPos) + '\n' + value.substring(breakPos);
+            paper.setSelectionRange(pos + 1, pos + 1);
+            len = currentLineLen();
+            if (!bell.classList.contains('bell--ring')) ringBell();
+          }
+          state.prevLineLen = len;
+          updateRollTarget();
+        });
+        paper.addEventListener('keydown', (ev) => {
+          if (ev.key.length === 1) pressKey(ev.key);
+          else if (ev.key === 'Backspace') pressKey('\\b');
+          else if (ev.key === 'Enter')     pressKey('\\n');
+        });
+
+        // Virtual key clicks
+        keys.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('.key');
+          if (!btn) return;
+          const raw = btn.dataset.char;
+          paper.focus();
+          let ch = raw;
+          if (raw === '\\b') ch = 'BACK';
+          if (raw === '\\n') ch = '\n';
+          const start = paper.selectionStart;
+          const end   = paper.selectionEnd;
+          if (ch === 'BACK') {
+            if (start !== end) paper.setRangeText('', start, end, 'start');
+            else if (start > 0) paper.setRangeText('', start - 1, start, 'start');
+          } else {
+            paper.setRangeText(ch, start, end, 'end');
+          }
+          paper.dispatchEvent(new Event('input', { bubbles: true }));
+          btn.classList.add('key--pressed');
+          setTimeout(() => btn.classList.remove('key--pressed'), 110);
+        });
+
+        // Focus the paper input whenever the user clicks on the stage —
+        // even though the WebGL canvas covers the textarea visually.
+        stage.addEventListener('click', () => paper.focus());
+
+        clearBtn.addEventListener('click', () => {
+          paper.value = '';
+          state.prevLineLen = 0;
+          state.targetRollLine = 0;
+          paper.focus();
+          updateRollTarget();
+        });
+        demoBtn.addEventListener('click', async () => {
+          paper.focus();
+          const phrases = [
+            'The quick brown fox jumps over the lazy dog. ',
+            'Pack my box with five dozen liquor jugs. ',
+            'How vexingly quick daft zebras jump! ',
+            'Sphinx of black quartz, judge my vow. ',
+          ];
+          for (const phrase of phrases) {
+            for (const ch of phrase) {
+              const start = paper.selectionEnd;
+              paper.setRangeText(ch, start, start, 'end');
+              paper.dispatchEvent(new Event('input', { bubbles: true }));
+              pressKey(ch);
+              await new Promise((r) => setTimeout(r, 65));
+            }
+          }
+        });
+
+        function caretLine() {
+          const before = paper.value.substring(0, paper.selectionStart);
+          return before.split('\n').length - 1;
+        }
+        function updateRollTarget() {
+          state.targetRollLine = caretLine();
+        }
+
+        if (!hasTexElement) {
+          // Show the textarea visibly as a fallback.
+          paper.style.transform = 'none';
+          paper.style.width = '100%';
+          paper.style.height = '300px';
+          paper.style.position = 'relative';
+          stat.textContent = 'fallback · flat textarea';
+          return;
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        //  WebGL setup
+        // ─────────────────────────────────────────────────────────────
+        const vsSource = `#version 300 es
+          precision highp float;
+          in vec2 a_uv;
+          out vec2 v_uv;
+          out vec3 v_normal;
+          uniform mat4 u_proj;
+          uniform mat4 u_view;
+          uniform float u_paperWidth;
+          uniform float u_cylinderR;
+          uniform float u_strikeAngle;
+          uniform vec3  u_cylinderCenter;
+          uniform float u_arcSpan;       // world arc length the paper covers (v=0..1)
+          uniform float u_textSpanPerV;  // v_tex change per unit-v on the paper
+          uniform float u_rollOffsetV;   // v_tex offset so current line sits at strike
+          uniform float u_hangLength;    // world-unit hang for v in (-1..0)
+          void main() {
+            float u = a_uv.x;
+            float v = a_uv.y;            // -1 = bottom of hanging paper, 0 = strike, 1 = top of wrap
+
+            vec3 pos;
+            pos.x = (u - 0.5) * u_paperWidth;
+
+            // Push the paper just outside the cylinder surface to avoid
+            // z-fighting with the platen — without this you get alternating
+            // paper/cylinder stripes wherever the surfaces coincide.
+            float Rpaper = u_cylinderR + 0.015;
+
+            if (v >= 0.0) {
+              // Wrapped portion — arcs around the cylinder
+              float arc = v * u_arcSpan;
+              float angle = u_strikeAngle + arc / u_cylinderR;
+              pos.y = u_cylinderCenter.y + sin(angle) * Rpaper;
+              pos.z = u_cylinderCenter.z + cos(angle) * Rpaper;
+              v_normal = normalize(vec3(0.0, sin(angle), cos(angle)));
+            } else {
+              // Hanging portion — straight down from the strike, tangent to
+              // the cylinder at strikeAngle. For strikeAngle ≈ 0 this is just
+              // -Y; for non-zero angles we project along the tangent.
+              float ang = u_strikeAngle;
+              vec3 strikePos = vec3(0.0,
+                u_cylinderCenter.y + sin(ang) * Rpaper,
+                u_cylinderCenter.z + cos(ang) * Rpaper);
+              vec3 tangentDown = vec3(0.0, -cos(ang), sin(ang));
+              vec3 hangPos = strikePos + tangentDown * (-v * u_hangLength);
+              pos.y = hangPos.y;
+              pos.z = hangPos.z;
+              v_normal = normalize(vec3(0.0, sin(ang), cos(ang)));
+            }
+
+            // Texture coords. v=0 (strike) samples at (1 - rollOffsetV) — the
+            // current line. Going up the wrap (v > 0) walks the texture up
+            // (toward older lines). Going down the hang (v < 0) walks the
+            // texture further down (blank area below the typed text).
+            v_uv = vec2(u, (1.0 - u_rollOffsetV) - v * u_textSpanPerV);
+
+            gl_Position = u_proj * u_view * vec4(pos, 1.0);
+          }`;
+
+        const fsSource = `#version 300 es
+          precision highp float;
+          in vec2 v_uv;
+          in vec3 v_normal;
+          out vec4 o_color;
+          uniform sampler2D u_tex;
+          uniform vec3 u_solidColor;
+          uniform bool u_useTex;
+          void main() {
+            vec3 lightDir = normalize(vec3(0.25, 0.6, 0.9));
+            float light = max(0.0, dot(normalize(v_normal), lightDir));
+            light = 0.42 + 0.58 * light;
+            vec3 base;
+            if (u_useTex) {
+              // Clamp v_uv outside the textarea to a neutral paper colour
+              vec2 c = v_uv;
+              if (c.y < 0.0 || c.y > 1.0 || c.x < 0.0 || c.x > 1.0) {
+                base = vec3(0.97, 0.94, 0.84);
+              } else {
+                base = texture(u_tex, c).rgb;
+              }
+            } else {
+              base = u_solidColor;
+            }
+            o_color = vec4(base * light, 1.0);
+          }`;
+
+        // Cylinder uses a similar shader but the position is computed from
+        // a different vertex attribute layout (theta + axial position).
+        // v_uv is declared (and assigned a dummy) only so the program links
+        // against the shared fragment shader which expects an `in vec2 v_uv`.
+        const cylVsSource = `#version 300 es
+          precision highp float;
+          in vec2 a_polar;  // x = theta (radians), y = axial t (-0.5..0.5)
+          out vec3 v_normal;
+          out vec2 v_uv;
+          uniform mat4 u_proj;
+          uniform mat4 u_view;
+          uniform float u_cylinderR;
+          uniform float u_cylinderLen;
+          uniform vec3  u_cylinderCenter;
+          void main() {
+            float theta = a_polar.x;
+            float t = a_polar.y;
+            vec3 pos;
+            pos.x = u_cylinderCenter.x + t * u_cylinderLen;
+            pos.y = u_cylinderCenter.y + sin(theta) * u_cylinderR;
+            pos.z = u_cylinderCenter.z + cos(theta) * u_cylinderR;
+            v_normal = normalize(vec3(0.0, sin(theta), cos(theta)));
+            v_uv = vec2(0.0);
+            gl_Position = u_proj * u_view * vec4(pos, 1.0);
+          }`;
+
+        function showError(label, message) {
+          notice.hidden = false;
+          notice.dataset.tone = 'error';
+          notice.textContent = '';
+          const s = document.createElement('strong');
+          s.textContent = `${label}: `;
+          const code = document.createElement('code');
+          code.textContent = message;
+          notice.append(s, code);
+          setDiag('bad', label);
+          console.error(label, message);
+        }
+        function compile(type, src) {
+          const sh = gl.createShader(type);
+          gl.shaderSource(sh, src);
+          gl.compileShader(sh);
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+            const log = gl.getShaderInfoLog(sh);
+            showError('Shader compile failed', log);
+            return null;
+          }
+          return sh;
+        }
+        function link(vs, fs) {
+          if (!vs || !fs) return null;
+          const p = gl.createProgram();
+          gl.attachShader(p, vs);
+          gl.attachShader(p, fs);
+          gl.linkProgram(p);
+          if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+            const log = gl.getProgramInfoLog(p);
+            showError('Program link failed', log);
+            return null;
+          }
+          return p;
+        }
+
+        const paperVs = compile(gl.VERTEX_SHADER, vsSource);
+        const cylVs   = compile(gl.VERTEX_SHADER, cylVsSource);
+        const sharedFs = compile(gl.FRAGMENT_SHADER, fsSource);
+        const paperProgram = link(paperVs, sharedFs);
+        const cylProgram   = link(cylVs,   sharedFs);
+
+        // ── Paper mesh (subdivided quad) ─────────────────────────────
+        // v ranges from -1 (bottom of hanging paper) to 1 (top of wrap)
+        const ROWS = 80;  // more subdivisions across the bigger range
+        const COLS = 8;
+        const paperVerts = [];
+        const paperIdx = [];
+        for (let r = 0; r <= ROWS; r++) {
+          const v = -1 + (r / ROWS) * 2;   // v from -1 to 1
+          for (let c = 0; c <= COLS; c++) {
+            paperVerts.push(c / COLS, v);
+          }
+        }
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            const i = r * (COLS + 1) + c;
+            paperIdx.push(i, i + 1, i + COLS + 1);
+            paperIdx.push(i + 1, i + COLS + 2, i + COLS + 1);
+          }
+        }
+        const paperVao = gl.createVertexArray();
+        gl.bindVertexArray(paperVao);
+        const paperVbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, paperVbo);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(paperVerts), gl.STATIC_DRAW);
+        const paperEbo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, paperEbo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(paperIdx), gl.STATIC_DRAW);
+        const aUvLoc = gl.getAttribLocation(paperProgram, 'a_uv');
+        gl.enableVertexAttribArray(aUvLoc);
+        gl.vertexAttribPointer(aUvLoc, 2, gl.FLOAT, false, 0, 0);
+        gl.bindVertexArray(null);
+
+        // ── Cylinder mesh ────────────────────────────────────────────
+        const CYL_SEGS = 64;
+        const cylVerts = [];
+        const cylIdx = [];
+        for (let s = 0; s <= CYL_SEGS; s++) {
+          const theta = (s / CYL_SEGS) * Math.PI * 2;
+          cylVerts.push(theta, -0.5);
+          cylVerts.push(theta,  0.5);
+        }
+        for (let s = 0; s < CYL_SEGS; s++) {
+          const i = s * 2;
+          cylIdx.push(i, i + 1, i + 2);
+          cylIdx.push(i + 1, i + 3, i + 2);
+        }
+        const cylVao = gl.createVertexArray();
+        gl.bindVertexArray(cylVao);
+        const cylVbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, cylVbo);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cylVerts), gl.STATIC_DRAW);
+        const cylEbo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cylEbo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(cylIdx), gl.STATIC_DRAW);
+        const aPolarLoc = gl.getAttribLocation(cylProgram, 'a_polar');
+        gl.enableVertexAttribArray(aPolarLoc);
+        gl.vertexAttribPointer(aPolarLoc, 2, gl.FLOAT, false, 0, 0);
+        gl.bindVertexArray(null);
+
+        // ── Texture for paper ────────────────────────────────────────
+        // Trilinear minification (LINEAR_MIPMAP_LINEAR) anti-aliases the
+        // tightly-wrapped portions of the paper where many texture rows
+        // compress into few screen pixels. The mipmaps are regenerated each
+        // frame after the texElementImage2D upload.
+        const paperTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, paperTex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+        // Anisotropic filtering — helps when the paper is viewed at oblique
+        // angles (which is exactly what happens around the cylinder).
+        const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+        if (aniso) {
+          const max = gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+          gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, max));
+        }
+
+        // Seed with a 1×1 paper-colored pixel so the GPU has a valid
+        // texture from frame 1. The first onpaint will replace it with the
+        // real textarea contents via texElementImage2D.
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+          new Uint8Array([246, 239, 216, 255])); // #f6efd8 = the paper colour
+        gl.generateMipmap(gl.TEXTURE_2D);
+
+        // ── Matrix helpers ───────────────────────────────────────────
+        function mat4Identity() {
+          return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+        }
+        function mat4Perspective(fovy, aspect, near, far) {
+          const f = 1 / Math.tan(fovy / 2);
+          const nf = 1 / (near - far);
+          return new Float32Array([
+            f / aspect, 0, 0, 0,
+            0, f, 0, 0,
+            0, 0, (far + near) * nf, -1,
+            0, 0, 2 * far * near * nf, 0,
+          ]);
+        }
+        function mat4LookAt(ex, ey, ez, cx, cy, cz, ux, uy, uz) {
+          // Build right-handed view matrix.
+          const fx = cx - ex, fy = cy - ey, fz = cz - ez;
+          const fl = Math.hypot(fx, fy, fz);
+          const nfx = fx / fl, nfy = fy / fl, nfz = fz / fl;
+          const sx = nfy * uz - nfz * uy;
+          const sy = nfz * ux - nfx * uz;
+          const sz = nfx * uy - nfy * ux;
+          const sl = Math.hypot(sx, sy, sz);
+          const nsx = sx / sl, nsy = sy / sl, nsz = sz / sl;
+          const tx = nsy * nfz - nsz * nfy;
+          const ty = nsz * nfx - nsx * nfz;
+          const tz = nsx * nfy - nsy * nfx;
+          return new Float32Array([
+            nsx, tx, -nfx, 0,
+            nsy, ty, -nfy, 0,
+            nsz, tz, -nfz, 0,
+            -(nsx*ex + nsy*ey + nsz*ez),
+            -(tx*ex + ty*ey + tz*ez),
+             (nfx*ex + nfy*ey + nfz*ez),
+            1,
+          ]);
+        }
+
+        // ── Sizing ───────────────────────────────────────────────────
+        let viewW = 720, viewH = 360;
+        function resize() {
+          const r = stage.getBoundingClientRect();
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          viewW = Math.max(320, Math.floor(r.width));
+          viewH = Math.max(280, Math.floor(r.height));
+          canvas.width  = viewW * dpr;
+          canvas.height = viewH * dpr;
+          canvas.style.width = `${viewW}px`;
+          canvas.style.height = `${viewH}px`;
+          gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+        new ResizeObserver(resize).observe(stage);
+        resize();
+
+        // ── Texture upload via canvas onpaint ────────────────────────
+        // texElementImage2D requires a fresh paint record for the source
+        // element. The browser only guarantees that inside the canvas's
+        // onpaint callback — so we do the GPU upload there, and use a
+        // benign style mutation (`nudge`) to force the browser to fire
+        // onpaint whenever we need a refresh.
+        let texElErrorShown = false;
+        let textureReady = false;
+        function uploadTexture() {
+          gl.bindTexture(gl.TEXTURE_2D, paperTex);
+          try {
+            gl.texElementImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, paper);
+            gl.generateMipmap(gl.TEXTURE_2D);
+            textureReady = true;
+          } catch (err) {
+            if (!texElErrorShown) {
+              texElErrorShown = true;
+              showError('texElementImage2D threw', err.message || String(err));
+            }
+          }
+        }
+        canvas.onpaint = uploadTexture;
+
+        // Force the browser to repaint the canvas subtree (which fires
+        // onpaint). Used after typing, after layout changes, and once on
+        // startup to seed the initial texture.
+        let nudgeFlag = false;
+        function nudge() {
+          nudgeFlag = !nudgeFlag;
+          paper.style.opacity = nudgeFlag ? '1' : '0.999999';
+        }
+        // Drive a paint after every input so the texture stays in sync.
+        paper.addEventListener('input', nudge);
+
+        // ── Render loop ──────────────────────────────────────────────
+        if (!paperProgram || !cylProgram) {
+          stat.textContent = 'shader/program build failed — see notice';
+          return;
+        }
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+
+        function render(now) {
+          const dt = Math.min(0.1, (now - state.lastT) / 1000);
+          state.lastT = now;
+
+          // Ease currentRollLine toward target
+          const tau = state.rollMs / 1000;
+          const k = 1 - Math.exp(-dt / Math.max(0.01, tau / 4));
+          state.currentRollLine += (state.targetRollLine - state.currentRollLine) * k;
+
+          // Texture is uploaded by uploadTexture() inside the canvas's
+          // onpaint handler — not here. The render loop just samples the
+          // last good upload, so animation runs smoothly between paints.
+
+          // ── Clear ─────────────────────────────────────────────────
+          gl.enable(gl.DEPTH_TEST);
+          gl.depthFunc(gl.LEQUAL);
+          gl.clearColor(0.04, 0.03, 0.02, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+          // ── Camera ─────────────────────────────────────────────────
+          const aspect = canvas.width / canvas.height;
+          const proj = mat4Perspective(Math.PI / 5, aspect, 0.1, 100);
+          const view = mat4LookAt(0, 0, 5.0, 0, 0, 0, 0, 1, 0);
+
+          // ── Scene parameters ──────────────────────────────────────
+          const paperWidth   = 4.0;
+          const cylinderR    = state.radiusPx / 100;
+          const cylinderCx   = 0, cylinderCy = 0.2, cylinderCz = 0;
+          const strikeAngle  = 0.0;                     // strike at the front-center
+          const paperVisH    = cylinderR * Math.PI * 1.15;  // arc length covered by v=0..1
+          const hangLength   = 1.7;                     // world units of hanging paper for v=-1..0
+          const textareaCss  = paper.offsetHeight || 1400;
+          const lineH        = 24;
+          const padTop       = 28;
+          const textHeight   = textareaCss;
+          const N = state.currentRollLine;
+          const vTexCurrent = (padTop + N * lineH + lineH / 2) / textHeight;
+          const rollOffsetV = 1.0 - vTexCurrent;
+          // textSpan per unit-v: keep the line spacing consistent across both
+          // hanging and wrap portions. ~7 lines per unit-v worth of texture.
+          const textSpanPerV = (lineH * 7) / textHeight;
+
+          // ── Draw cylinder ─────────────────────────────────────────
+          gl.useProgram(cylProgram);
+          gl.bindVertexArray(cylVao);
+          gl.uniformMatrix4fv(gl.getUniformLocation(cylProgram, 'u_proj'), false, proj);
+          gl.uniformMatrix4fv(gl.getUniformLocation(cylProgram, 'u_view'), false, view);
+          gl.uniform1f(gl.getUniformLocation(cylProgram, 'u_cylinderR'), cylinderR);
+          gl.uniform1f(gl.getUniformLocation(cylProgram, 'u_cylinderLen'), paperWidth + 1.2);
+          gl.uniform3f(gl.getUniformLocation(cylProgram, 'u_cylinderCenter'), cylinderCx, cylinderCy, cylinderCz);
+          gl.uniform1i(gl.getUniformLocation(cylProgram, 'u_useTex'), 0);
+          gl.uniform3f(gl.getUniformLocation(cylProgram, 'u_solidColor'), 0.18, 0.12, 0.08);
+          gl.drawElements(gl.TRIANGLES, cylIdx.length, gl.UNSIGNED_SHORT, 0);
+
+          // ── Draw paper ────────────────────────────────────────────
+          gl.useProgram(paperProgram);
+          gl.bindVertexArray(paperVao);
+          gl.uniformMatrix4fv(gl.getUniformLocation(paperProgram, 'u_proj'), false, proj);
+          gl.uniformMatrix4fv(gl.getUniformLocation(paperProgram, 'u_view'), false, view);
+          gl.uniform1f(gl.getUniformLocation(paperProgram, 'u_paperWidth'),  paperWidth);
+          gl.uniform1f(gl.getUniformLocation(paperProgram, 'u_cylinderR'),  cylinderR);
+          gl.uniform1f(gl.getUniformLocation(paperProgram, 'u_strikeAngle'), strikeAngle);
+          gl.uniform3f(gl.getUniformLocation(paperProgram, 'u_cylinderCenter'), cylinderCx, cylinderCy, cylinderCz);
+          gl.uniform1f(gl.getUniformLocation(paperProgram, 'u_arcSpan'),     paperVisH);
+          gl.uniform1f(gl.getUniformLocation(paperProgram, 'u_textSpanPerV'),textSpanPerV);
+          gl.uniform1f(gl.getUniformLocation(paperProgram, 'u_rollOffsetV'), rollOffsetV);
+          gl.uniform1f(gl.getUniformLocation(paperProgram, 'u_hangLength'),  hangLength);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, paperTex);
+          gl.uniform1i(gl.getUniformLocation(paperProgram, 'u_tex'), 0);
+          gl.uniform1i(gl.getUniformLocation(paperProgram, 'u_useTex'), 1);
+          gl.drawElements(gl.TRIANGLES, paperIdx.length, gl.UNSIGNED_SHORT, 0);
+
+          gl.bindVertexArray(null);
+
+          paints++;
+          if (now - fpsT > 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · line ${state.currentRollLine.toFixed(1)} · R ${cylinderR.toFixed(2)}`;
+            fpsT = now; fpsAt = paints;
+          }
+
+          requestAnimationFrame(render);
+        }
+        requestAnimationFrame(render);
+
+        // ── Global keyboard input ────────────────────────────────────
+        // Canvas children with `layoutsubtree` don't always accept focus, so
+        // we capture key events on the document and route them to the
+        // textarea programmatically. We only do this once the user has
+        // clicked inside the typewriter (typewriterActive) so we don't
+        // hijack the rest of the page's keyboard input.
+        let typewriterActive = false;
+        const source = document.getElementById('source');
+        source.addEventListener('click', () => { typewriterActive = true; });
+        document.addEventListener('click', (ev) => {
+          if (!source.contains(ev.target)) typewriterActive = false;
+        }, true);
+
+        function insertAtCaret(text) {
+          const start = paper.selectionStart;
+          const end = paper.selectionEnd;
+          paper.setRangeText(text, start, end, 'end');
+          paper.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        document.addEventListener('keydown', (ev) => {
+          if (!typewriterActive) return;
+          // Don't fight modifier-key combos (let copy/paste/etc. through)
+          if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+          if (ev.key.length === 1) {
+            ev.preventDefault();
+            insertAtCaret(ev.key);
+            pressKey(ev.key);
+          } else if (ev.key === 'Enter') {
+            ev.preventDefault();
+            insertAtCaret('\n');
+            pressKey('\\n');
+          } else if (ev.key === 'Backspace') {
+            ev.preventDefault();
+            const start = paper.selectionStart;
+            const end = paper.selectionEnd;
+            if (start !== end) paper.setRangeText('', start, end, 'start');
+            else if (start > 0) paper.setRangeText('', start - 1, start, 'start');
+            paper.dispatchEvent(new Event('input', { bubbles: true }));
+            pressKey('\\b');
+          }
+        });
+
+        // Activate immediately so the user can type without clicking first.
+        typewriterActive = true;
+        // Seed the first paint so the GPU has a valid texture on frame 1.
+        requestAnimationFrame(() => { nudge(); });
+      })();
+    </script>
+  </body>
+</html>

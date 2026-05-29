@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "chrome-canvas": {
+      "command": "npx",
+      "args": [
+        "chrome-devtools-mcp@latest",
+        "--isolated",
+        "--chromeArg=--enable-blink-features=CanvasDrawElement"
+      ]
+    }
+  }
+}

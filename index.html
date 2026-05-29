@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HTML in Canvas — Playground</title>
+    <meta
+      name="description"
+      content="Hands-on demos of Chrome's HTML-in-Canvas origin trial: rendering live, interactive DOM into a 2D canvas."
+    />
+    <link rel="stylesheet" href="./assets/styles.css" />
+    <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🎨</text></svg>" />
+  </head>
+  <body data-page="home">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <div class="app">
+      <div id="sidebar-slot" data-base="./"></div>
+
+      <main id="main" class="content">
+        <header class="hero">
+          <p class="eyebrow">Chrome origin trial · 2025</p>
+          <h1>Render live HTML <span class="hero__accent">inside a canvas.</span></h1>
+          <p class="hero__lede">
+            A new Chrome capability lets you draw a fully interactive DOM subtree into a
+            <code>&lt;canvas&gt;</code> with <code>context.drawElement()</code>. This site is a sandbox of
+            small, focused demos that explore what that unlocks — from reflections and warps to
+            game HUDs and live mini-maps.
+          </p>
+          <div class="hero__actions">
+            <a class="btn btn--primary" href="./examples/01-hello-html.html">Start with “Hello”</a>
+            <a class="btn btn--ghost" href="https://developer.chrome.com/blog/html-in-canvas-origin-trial" target="_blank" rel="noopener">
+              Read the announcement
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                <path fill="currentColor" d="M6 2v2h4.6L2 12.6 3.4 14 12 5.4V10h2V2z"/>
+              </svg>
+            </a>
+          </div>
+        </header>
+
+        <section class="grid" aria-label="Examples">
+          <article class="card" data-tone="violet">
+            <div class="card__preview">
+              <div class="card__chip">01</div>
+              <div class="card__art card__art--hello"></div>
+            </div>
+            <div class="card__body">
+              <h2>Hello, drawElementImage()</h2>
+              <p>The minimum viable demo: a live, interactive card painted into a canvas frame.</p>
+              <a class="card__link" href="./examples/01-hello-html.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="cyan">
+            <div class="card__preview">
+              <div class="card__chip">02</div>
+              <div class="card__art card__art--transforms"></div>
+            </div>
+            <div class="card__body">
+              <h2>Live transforms</h2>
+              <p>Rotate, scale, and skew a real DOM tree every frame — text stays crisp.</p>
+              <a class="card__link" href="./examples/02-transforms.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="rose">
+            <div class="card__preview">
+              <div class="card__chip">03</div>
+              <div class="card__art card__art--reflect"></div>
+            </div>
+            <div class="card__body">
+              <h2>Reflections &amp; mirrors</h2>
+              <p>Mirror an interactive panel below itself with a falloff gradient.</p>
+              <a class="card__link" href="./examples/03-reflection.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="amber">
+            <div class="card__preview">
+              <div class="card__chip">04</div>
+              <div class="card__art card__art--particles"></div>
+            </div>
+            <div class="card__body">
+              <h2>HTML particles</h2>
+              <p>Hundreds of copies of a single DOM node flocking around the cursor.</p>
+              <a class="card__link" href="./examples/04-particles.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="emerald">
+            <div class="card__preview">
+              <div class="card__chip">05</div>
+              <div class="card__art card__art--warp"></div>
+            </div>
+            <div class="card__body">
+              <h2>Warp &amp; distortion</h2>
+              <p>Sample a live element into a mesh of triangles for ripple effects.</p>
+              <a class="card__link" href="./examples/05-warp.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="sky">
+            <div class="card__preview">
+              <div class="card__chip">06</div>
+              <div class="card__art card__art--video"></div>
+            </div>
+            <div class="card__body">
+              <h2>Video + UI overlay</h2>
+              <p>Composite an HTML chrome (buttons, captions) on top of playing video.</p>
+              <a class="card__link" href="./examples/06-video-overlay.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="indigo">
+            <div class="card__preview">
+              <div class="card__chip">07</div>
+              <div class="card__art card__art--card3d"></div>
+            </div>
+            <div class="card__body">
+              <h2>3D parallax card</h2>
+              <p>Tilt a real product card in 3D, lighting and shadows included.</p>
+              <a class="card__link" href="./examples/07-3d-card.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="lime">
+            <div class="card__preview">
+              <div class="card__chip">08</div>
+              <div class="card__art card__art--map"></div>
+            </div>
+            <div class="card__body">
+              <h2>Live mini-map</h2>
+              <p>Draw the page itself into a corner thumbnail that updates in real time.</p>
+              <a class="card__link" href="./examples/08-mini-map.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="fuchsia">
+            <div class="card__preview">
+              <div class="card__chip">09</div>
+              <div class="card__art card__art--form"></div>
+            </div>
+            <div class="card__body">
+              <h2>Form inside a scene</h2>
+              <p>A genuine, focusable form pinned to a 3D wall — typing works.</p>
+              <a class="card__link" href="./examples/09-form-in-scene.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="teal">
+            <div class="card__preview">
+              <div class="card__chip">10</div>
+              <div class="card__art card__art--hud"></div>
+            </div>
+            <div class="card__body">
+              <h2>Game HUD</h2>
+              <p>A reactive HTML HUD overlaid on a canvas game loop.</p>
+              <a class="card__link" href="./examples/10-game-hud.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="violet">
+            <div class="card__preview">
+              <div class="card__chip">11</div>
+              <div class="card__art card__art--hello"></div>
+            </div>
+            <div class="card__body">
+              <h2>Falling letters</h2>
+              <p>Type and watch each letter drop from the sky and slam into the input.</p>
+              <a class="card__link" href="./examples/11-falling-letters.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="sky">
+            <div class="card__preview">
+              <div class="card__chip">12</div>
+              <div class="card__art card__art--map"></div>
+            </div>
+            <div class="card__body">
+              <h2>Yeti watches you type</h2>
+              <p>A CSS-art yeti whose eyes follow your text caret around a textarea.</p>
+              <a class="card__link" href="./examples/12-yeti.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="indigo">
+            <div class="card__preview">
+              <div class="card__chip">15</div>
+              <div class="card__art card__art--card3d"></div>
+            </div>
+            <div class="card__body">
+              <h2>3D login orb</h2>
+              <p>A live sign-in form suspended inside a spinning, glassy 3D orb.</p>
+              <a class="card__link" href="./examples/15-login-orb.html">Open demo →</a>
+            </div>
+          </article>
+        </section>
+
+        <section class="callout">
+          <h3>How this site is laid out</h3>
+          <p>
+            Each demo is a single self-contained HTML file under <code>/examples</code>. The shared
+            chrome (sidebar, hero, cards) lives in <code>/assets/styles.css</code> and is reused on
+            every page. Demos that require the origin trial token can declare it in a
+            <code>&lt;meta&gt;</code> tag at the top of the file.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="./assets/sidebar.js" defer></script>
+    <script src="./assets/support-check.js" defer></script>
+  </body>
+</html>

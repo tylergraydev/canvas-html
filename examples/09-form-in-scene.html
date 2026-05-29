@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>09 · Form inside a scene — HTML in Canvas</title>
+    <meta name="description" content="A full functional form rendered inside a canvas-painted scene." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 680px; }
+      canvas.scene { min-height: 680px; }
+
+      .signup {
+        width: 380px;
+        padding: 26px 28px 24px;
+        background: linear-gradient(180deg, rgba(20,25,40,.92), rgba(8,10,16,.95));
+        border: 1px solid rgba(124,92,255,.4);
+        border-radius: 16px;
+        backdrop-filter: blur(8px);
+        box-shadow:
+          0 20px 50px -20px rgba(0,0,0,.7),
+          0 0 60px -20px rgba(124,92,255,.4);
+        display: flex; flex-direction: column; gap: 14px;
+        color: var(--text);
+        font-size: 14px;
+        transform-origin: 0 0;
+      }
+      .signup__head { display: flex; align-items: center; justify-content: space-between; }
+      .signup__title {
+        margin: 0; font-size: 18px; font-weight: 600;
+        letter-spacing: -.01em;
+      }
+      .signup__sub { color: var(--text-mute); font-size: 12px; margin: 0; }
+      .signup__brand {
+        width: 32px; height: 32px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #7c5cff, #22d3ee);
+        position: relative;
+        box-shadow: 0 0 0 1px rgba(255,255,255,.1);
+      }
+      .signup[data-animate="true"] .signup__brand::after {
+        content: ""; position: absolute; inset: 4px;
+        border-radius: 4px;
+        background: rgba(0,0,0,.4);
+        animation: brandSpark 1.4s ease-in-out infinite;
+      }
+      @keyframes brandSpark {
+        50% { background: rgba(255,255,255,.18); }
+      }
+
+      .field {
+        display: flex; flex-direction: column; gap: 5px;
+      }
+      .field > label {
+        font-size: 11px;
+        color: var(--text-mute);
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+      .field input[type="text"],
+      .field input[type="email"],
+      .field input[type="password"],
+      .field select {
+        background: var(--bg);
+        border: 1px solid var(--border-strong);
+        color: var(--text);
+        padding: 9px 11px;
+        border-radius: 8px;
+        font: inherit; font-size: 13.5px;
+        outline: none;
+      }
+      .field input:focus, .field select:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(124,92,255,.22);
+      }
+      .field--error input { border-color: var(--bad); }
+      .field--ok    input { border-color: var(--good); }
+      .field__msg { font-size: 11.5px; min-height: 1.3em; }
+      .field--error .field__msg { color: #fecaca; }
+      .field--ok    .field__msg { color: #86efac; }
+
+      .row { display: flex; gap: 10px; }
+      .row > .field { flex: 1; }
+
+      .options { display: flex; flex-direction: column; gap: 6px; }
+      .options label {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 13px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .options input[type="checkbox"], .options input[type="radio"] {
+        accent-color: var(--accent);
+      }
+
+      .signup__cta {
+        margin-top: 4px;
+        padding: 11px 14px;
+        background: linear-gradient(180deg, #8a6bff, #6b4dff);
+        color: white;
+        border: 0; border-radius: 10px;
+        font: inherit; font-size: 14px; font-weight: 500;
+        cursor: pointer;
+        box-shadow: 0 8px 20px -6px rgba(124,92,255,.7);
+      }
+      .signup__cta:hover { filter: brightness(1.06); }
+      .signup__cta:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .signup__success {
+        margin: 0;
+        padding: 10px;
+        background: rgba(52,211,153,.12);
+        border: 1px solid rgba(52,211,153,.45);
+        color: #86efac;
+        border-radius: 8px;
+        font-size: 13px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 09 · Interactive</p>
+            <h1 class="example__title">Form inside a scene</h1>
+            <p class="example__intro">
+              A real <code>&lt;form&gt;</code> — tab order, validation, autofill, focus rings, native
+              date picker — sitting on top of a canvas-drawn neon grid. Every input is interactive,
+              every error message is reactive, and the backdrop scrolls live behind it.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · live grid scene + drawElementImage(form)</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+            <canvas class="scene" id="scene" layoutsubtree>
+              <form class="signup" id="source" data-animate="true" novalidate>
+                <div class="signup__head">
+                  <div>
+                    <h2 class="signup__title">Join Aurora</h2>
+                    <p class="signup__sub">Two weeks free, no card required.</p>
+                  </div>
+                  <div class="signup__brand"></div>
+                </div>
+
+                <div class="field" id="field-name">
+                  <label for="f-name">Full name</label>
+                  <input id="f-name" type="text" autocomplete="name" placeholder="Ada Lovelace" />
+                  <span class="field__msg"></span>
+                </div>
+
+                <div class="field" id="field-email">
+                  <label for="f-email">Email</label>
+                  <input id="f-email" type="email" autocomplete="email" placeholder="ada@example.com" />
+                  <span class="field__msg"></span>
+                </div>
+
+                <div class="row">
+                  <div class="field" id="field-password">
+                    <label for="f-password">Password</label>
+                    <input id="f-password" type="password" placeholder="••••••••" />
+                    <span class="field__msg"></span>
+                  </div>
+                  <div class="field" id="field-role">
+                    <label for="f-role">Role</label>
+                    <select id="f-role">
+                      <option value="">Pick one…</option>
+                      <option>Engineer</option>
+                      <option>Designer</option>
+                      <option>PM</option>
+                      <option>Other</option>
+                    </select>
+                    <span class="field__msg"></span>
+                  </div>
+                </div>
+
+                <div class="options">
+                  <label><input type="checkbox" id="f-news" /> Send me product updates</label>
+                  <label><input type="checkbox" id="f-tos" /> I agree to the terms</label>
+                </div>
+
+                <button class="signup__cta" id="cta" type="submit">Create account</button>
+                <p class="signup__success" id="success" hidden>Account created. Welcome aboard.</p>
+              </form>
+            </canvas>
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <div class="controls__group" role="group">
+              <button class="seg" id="scene-grid"  aria-pressed="true">Neon grid</button>
+              <button class="seg" id="scene-rain"  aria-pressed="false">Digital rain</button>
+              <button class="seg" id="scene-still" aria-pressed="false">Still</button>
+            </div>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>Native behaviour, preserved</h3>
+          <p>
+            Tab through the fields. Trigger a browser autofill. Watch validation messages appear
+            as you type. Submit without filling — the first invalid input gets focus. Every native
+            form behaviour you'd expect from a regular DOM form works, because the form
+            <em>is</em> regular DOM — the canvas just paints it.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const ctx       = canvas.getContext('2d');
+        const source    = document.getElementById('source');
+        const host      = document.getElementById('canvas-host');
+        const fbHost    = document.getElementById('fallback-host');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+        const cta       = document.getElementById('cta');
+        const success   = document.getElementById('success');
+
+        const sceneGrid  = document.getElementById('scene-grid');
+        const sceneRain  = document.getElementById('scene-rain');
+        const sceneStill = document.getElementById('scene-still');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        const state = { scene: 'grid' };
+        function setPressed(group, on) {
+          for (const b of group) b.setAttribute('aria-pressed', b === on ? 'true' : 'false');
+        }
+        sceneGrid .addEventListener('click', () => { state.scene = 'grid';  setPressed([sceneGrid, sceneRain, sceneStill], sceneGrid);  applyAnim(); });
+        sceneRain .addEventListener('click', () => { state.scene = 'rain';  setPressed([sceneGrid, sceneRain, sceneStill], sceneRain);  applyAnim(); });
+        sceneStill.addEventListener('click', () => { state.scene = 'still'; setPressed([sceneGrid, sceneRain, sceneStill], sceneStill); applyAnim(); });
+        function applyAnim() { source.dataset.animate = state.scene === 'still' ? 'false' : 'true'; }
+
+        // ── Validation ────────────────────────────────────────────────
+        const fields = {
+          name:     { el: document.getElementById('f-name'),     wrap: document.getElementById('field-name'),     msg: document.querySelector('#field-name .field__msg') },
+          email:    { el: document.getElementById('f-email'),    wrap: document.getElementById('field-email'),    msg: document.querySelector('#field-email .field__msg') },
+          password: { el: document.getElementById('f-password'), wrap: document.getElementById('field-password'), msg: document.querySelector('#field-password .field__msg') },
+          role:     { el: document.getElementById('f-role'),     wrap: document.getElementById('field-role'),     msg: document.querySelector('#field-role .field__msg') },
+        };
+        function setState(name, ok, msg) {
+          const f = fields[name];
+          f.wrap.classList.toggle('field--error', !ok && msg !== '');
+          f.wrap.classList.toggle('field--ok', ok);
+          f.msg.textContent = msg;
+        }
+        function validate(name, live = true) {
+          const v = (fields[name].el.value || '').trim();
+          switch (name) {
+            case 'name':     return v.length >= 2 ? [true,  'Looks good.']                    : [false, live ? '' : 'Enter at least 2 characters.'];
+            case 'email':    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? [true, 'Looks good.'] : [false, live ? '' : 'Enter a valid email.'];
+            case 'password': return v.length >= 8 ? [true,  '8+ characters.']                  : [false, live ? '' : 'Use 8 or more characters.'];
+            case 'role':     return v.length ? [true, 'OK.']                                   : [false, live ? '' : 'Pick a role.'];
+          }
+          return [false, ''];
+        }
+        for (const name of Object.keys(fields)) {
+          fields[name].el.addEventListener('input', () => {
+            const [ok, msg] = validate(name, true);
+            setState(name, ok, msg);
+          });
+        }
+
+        cta.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          let allOk = true;
+          let firstBad = null;
+          for (const name of Object.keys(fields)) {
+            const [ok, msg] = validate(name, false);
+            setState(name, ok, msg);
+            if (!ok) { allOk = false; if (!firstBad) firstBad = fields[name].el; }
+          }
+          if (!document.getElementById('f-tos').checked) {
+            allOk = false;
+            if (!firstBad) firstBad = document.getElementById('f-tos');
+          }
+          if (!allOk) { firstBad && firstBad.focus(); return; }
+          success.hidden = false;
+          cta.disabled = true;
+          cta.textContent = 'Welcome!';
+        });
+
+        // ── Sizing ────────────────────────────────────────────────────
+        function nudge() { source.style.opacity = source.style.opacity === '1' ? '0.999999' : '1'; }
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(420, Math.floor(r.width));
+          const h = Math.max(640, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host); resize();
+
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          const t = performance.now() / 1000;
+          ctx.reset();
+
+          // Backdrop
+          ctx.fillStyle = '#02030a';
+          ctx.fillRect(0, 0, w, h);
+
+          if (state.scene === 'grid') {
+            // Neon grid perspective floor
+            const horizon = h * 0.45;
+            ctx.strokeStyle = 'rgba(124,92,255,.4)';
+            ctx.lineWidth = 1;
+            for (let i = -16; i <= 16; i++) {
+              ctx.beginPath();
+              ctx.moveTo(w/2, horizon);
+              ctx.lineTo(w/2 + i * w * 0.045, h);
+              ctx.stroke();
+            }
+            for (let i = 1; i < 18; i++) {
+              const phase = (i + t * 0.5) % 18;
+              const y = horizon + (phase * phase) * 2.4;
+              if (y > h) continue;
+              ctx.globalAlpha = Math.min(1, phase / 18 + 0.1);
+              ctx.beginPath();
+              ctx.moveTo(0, y);
+              ctx.lineTo(w, y);
+              ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+            // Sun behind horizon
+            const sunGrad = ctx.createRadialGradient(w/2, horizon, 20, w/2, horizon, 220);
+            sunGrad.addColorStop(0, 'rgba(34,211,238,.6)');
+            sunGrad.addColorStop(1, 'rgba(34,211,238,0)');
+            ctx.fillStyle = sunGrad;
+            ctx.fillRect(0, 0, w, h);
+          } else if (state.scene === 'rain') {
+            // Digital rain
+            ctx.fillStyle = 'rgba(2,4,10,0.25)';
+            ctx.fillRect(0, 0, w, h);
+            ctx.font = '14px "JetBrains Mono", monospace';
+            ctx.fillStyle = 'rgba(124, 252, 159, .7)';
+            const cols = Math.floor(w / 14);
+            for (let c = 0; c < cols; c++) {
+              const seed = (c * 31 + Math.floor(t * 8)) % 137;
+              const ch = String.fromCharCode(33 + (seed % 90));
+              const y = ((c * 7 + t * 60) % (h + 20)) | 0;
+              ctx.globalAlpha = 0.3 + (y / h) * 0.6;
+              ctx.fillText(ch, c * 14, y);
+            }
+            ctx.globalAlpha = 1;
+          } else {
+            // Still — soft gradient
+            const g = ctx.createLinearGradient(0, 0, 0, h);
+            g.addColorStop(0, '#0c1024');
+            g.addColorStop(1, '#06080d');
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, w, h);
+          }
+
+          // Form on top
+          const cardW = source.offsetWidth  || 380;
+          const cardH = source.offsetHeight || 540;
+          const x = Math.round((w - cardW) / 2);
+          const y = Math.round((h - cardH) / 2);
+
+          try {
+            const transform = ctx.drawElementImage(source, x, y);
+            source.style.transform = transform.toString();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            return;
+          }
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · ${state.scene} · form fully interactive`;
+            fpsT = now; fpsAt = paints;
+          }
+        }
+
+        if (supported) { canvas.onpaint = paint; nudge(); }
+        else mountFallback();
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const s = document.createElement('strong'); s.textContent = 'drawElementImage() not detected.';
+          const c = document.createElement('code'); c.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(s, ' Enable ', c, ' to see the form on the scene.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

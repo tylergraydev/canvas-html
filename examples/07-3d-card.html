@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>07 · 3D parallax card — HTML in Canvas</title>
+    <meta name="description" content="Tilt a real product card in 3D using CSS perspective, painted into canvas." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 560px; }
+      canvas.scene { min-height: 560px; }
+
+      /* The wrapper has the perspective. drawElementImage targets the wrapper
+         so the 3D-transformed child is included in the captured render. */
+      .card-wrap {
+        width: 340px;
+        perspective: 1000px;
+        transform-origin: 0 0;
+      }
+      .card3d {
+        position: relative;
+        width: 100%;
+        background: linear-gradient(180deg, #1d2333, #0d1118);
+        border: 1px solid #2a3243;
+        border-radius: 18px;
+        box-shadow: 0 30px 60px -30px rgba(0,0,0,.7);
+        overflow: hidden;
+        transform-style: preserve-3d;
+        transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+        transition: transform .12s ease-out;
+      }
+      .card3d__art {
+        height: 180px;
+        background:
+          radial-gradient(160px 100px at 25% 30%, #fbbf24, transparent 65%),
+          radial-gradient(220px 140px at 75% 70%, #f97316, transparent 70%),
+          linear-gradient(135deg, #7c2d12, #1e1b4b);
+        position: relative;
+      }
+      .card3d__art::after {
+        content: "";
+        position: absolute; inset: 0;
+        background: linear-gradient(110deg, transparent 40%, rgba(255,255,255,.18) 50%, transparent 60%);
+        transform: translateX(calc(var(--shine, 0) * 1px));
+      }
+      .card3d__body { padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 12px; color: var(--text); }
+      .card3d__title { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+      .card3d__sub { margin: 0; color: var(--text-mute); font-size: 13px; }
+      .card3d__row {
+        display: flex; justify-content: space-between; align-items: center;
+        font-size: 13px;
+      }
+      .card3d__price {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 22px;
+        background: linear-gradient(90deg, #fbbf24, #f97316);
+        -webkit-background-clip: text;
+                background-clip: text;
+        color: transparent;
+      }
+      .card3d__btn {
+        padding: 9px 14px;
+        background: linear-gradient(180deg, #fbbf24, #f97316);
+        color: #1f1003;
+        border: 0; border-radius: 10px;
+        font: inherit; font-weight: 600; font-size: 13px;
+        cursor: pointer;
+        box-shadow: 0 6px 18px -6px rgba(251,191,36,.7);
+      }
+      .card3d__btn:hover { filter: brightness(1.05); }
+      .card3d__btn:active { transform: translateY(1px); }
+
+      /* Floating "spec chips" sitting in front of the card on a different Z plane */
+      .chip-row {
+        display: flex; gap: 8px; flex-wrap: wrap;
+        transform: translateZ(40px);
+      }
+      .chip {
+        font-size: 11px; padding: 3px 8px;
+        border-radius: 999px;
+        background: rgba(0,0,0,.6);
+        color: #fde68a;
+        border: 1px solid rgba(251,191,36,.4);
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 07 · Composites</p>
+            <h1 class="example__title">3D parallax card</h1>
+            <p class="example__intro">
+              Move your cursor across the canvas. The card tilts in 3D via CSS
+              <code>perspective</code> + <code>rotateX</code>/<code>rotateY</code>, and the canvas
+              renders the rotated result with a shimmering specular sweep. The "Add" button is
+              clickable at any angle.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · CSS 3D transform inside drawElementImage</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+            <canvas class="scene" id="scene" layoutsubtree>
+              <div class="card-wrap" id="source">
+                <article class="card3d" id="card" data-animate="true">
+                  <div class="card3d__art" aria-hidden="true"></div>
+                  <div class="card3d__body">
+                    <h2 class="card3d__title">Helios Lamp</h2>
+                    <p class="card3d__sub">Warm, dimmable, USB-C. Built to sit on a desk and not steal attention.</p>
+                    <div class="chip-row">
+                      <span class="chip">2700K</span>
+                      <span class="chip">5W</span>
+                      <span class="chip">Aluminium</span>
+                    </div>
+                    <div class="card3d__row">
+                      <span class="card3d__price">$84</span>
+                      <button class="card3d__btn" id="add-btn">Add</button>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </canvas>
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <label class="slider"><span>Tilt</span><input type="range" id="tilt" min="0" max="30" value="14" /><span class="slider__val" id="tilt-val">14°</span></label>
+            <label class="slider"><span>Shadow</span><input type="range" id="shadow" min="0" max="100" value="60" /><span class="slider__val" id="shadow-val">60%</span></label>
+            <div class="controls__group" role="group">
+              <button class="seg" id="follow-on"  aria-pressed="true">Follow cursor</button>
+              <button class="seg" id="follow-off" aria-pressed="false">Center</button>
+            </div>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>Why this works</h3>
+          <p>
+            The CSS perspective and rotation live entirely in the DOM subtree. The canvas just
+            calls <code>drawElementImage()</code> on the wrapper — whatever the browser would
+            paint for that subtree (including 3D transforms) ends up on the canvas. Hit-testing
+            uses the wrapper's post-transform geometry, so the button stays clickable in 3D.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const ctx       = canvas.getContext('2d');
+        const source    = document.getElementById('source');
+        const card      = document.getElementById('card');
+        const host      = document.getElementById('canvas-host');
+        const fbHost    = document.getElementById('fallback-host');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+        const addBtn    = document.getElementById('add-btn');
+
+        const tiltIn   = document.getElementById('tilt'),   tiltVal   = document.getElementById('tilt-val');
+        const shadowIn = document.getElementById('shadow'), shadowVal = document.getElementById('shadow-val');
+        const followOn  = document.getElementById('follow-on');
+        const followOff = document.getElementById('follow-off');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        addBtn.addEventListener('click', () => {
+          addBtn.textContent = 'Added ✓';
+          setTimeout(() => { addBtn.textContent = 'Add'; }, 1400);
+        });
+
+        const state = { tilt: 14, shadow: 0.6, follow: true, mx: 0.5, my: 0.5 };
+        tiltIn  .addEventListener('input', () => { state.tilt = +tiltIn.value; tiltVal.textContent = `${state.tilt}°`; });
+        shadowIn.addEventListener('input', () => { state.shadow = +shadowIn.value / 100; shadowVal.textContent = `${shadowIn.value}%`; });
+        followOn .addEventListener('click', () => { state.follow = true;  followOn.setAttribute('aria-pressed','true');  followOff.setAttribute('aria-pressed','false'); });
+        followOff.addEventListener('click', () => { state.follow = false; followOn.setAttribute('aria-pressed','false'); followOff.setAttribute('aria-pressed','true'); applyTilt(0.5, 0.5); });
+
+        host.addEventListener('pointermove', (ev) => {
+          if (!state.follow) return;
+          const r = host.getBoundingClientRect();
+          state.mx = (ev.clientX - r.left) / r.width;
+          state.my = (ev.clientY - r.top)  / r.height;
+          applyTilt(state.mx, state.my);
+        });
+
+        function applyTilt(mx, my) {
+          const ry = (mx - 0.5) * 2 * state.tilt;
+          const rx = (0.5 - my) * 2 * state.tilt;
+          card.style.setProperty('--rx', `${rx.toFixed(2)}deg`);
+          card.style.setProperty('--ry', `${ry.toFixed(2)}deg`);
+          // Specular sweep follows cursor across X
+          const shineRange = (source.offsetWidth || 340) * 0.8;
+          card.style.setProperty('--shine', String((mx - 0.5) * shineRange));
+        }
+        applyTilt(0.5, 0.5);
+
+        function nudge() { source.style.opacity = source.style.opacity === '1' ? '0.999999' : '1'; }
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(320, Math.floor(r.width));
+          const h = Math.max(500, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host); resize();
+
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          ctx.reset();
+
+          // Backdrop — warm radial behind the card
+          const bg = ctx.createRadialGradient(w*0.5, h*0.45, 80, w*0.5, h*0.45, Math.max(w, h)*0.7);
+          bg.addColorStop(0, '#1a1004');
+          bg.addColorStop(1, '#06070d');
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          const cardW = source.offsetWidth  || 340;
+          const cardH = source.offsetHeight || 440;
+          const x = Math.round((w - cardW) / 2);
+          const y = Math.round((h - cardH) / 2);
+
+          // Cast shadow — shifts based on tilt to suggest a light from upper-left
+          const offsetX = (state.mx - 0.5) * 40;
+          const offsetY = (1 - state.my) * 30 + 20;
+          ctx.save();
+          ctx.fillStyle = `rgba(0,0,0,${0.45 * state.shadow})`;
+          ctx.filter = 'blur(28px)';
+          ctx.fillRect(x + offsetX, y + cardH - 30 + offsetY, cardW, 60);
+          ctx.restore();
+
+          try {
+            const transform = ctx.drawElementImage(source, x, y);
+            source.style.transform = transform.toString();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            return;
+          }
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            const ry = (state.mx - 0.5) * 2 * state.tilt;
+            const rx = (0.5 - state.my) * 2 * state.tilt;
+            stat.textContent = `${fps.toFixed(0)} fps · rx ${rx.toFixed(0)}° ry ${ry.toFixed(0)}°`;
+            fpsT = now; fpsAt = paints;
+          }
+        }
+
+        if (supported) { canvas.onpaint = paint; nudge(); }
+        else mountFallback();
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const s = document.createElement('strong'); s.textContent = 'drawElementImage() not detected.';
+          const c = document.createElement('code'); c.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(s, ' Enable ', c, ' to see the 3D parallax card.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

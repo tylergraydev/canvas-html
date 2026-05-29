@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>02 · Live transforms — HTML in Canvas</title>
+    <meta name="description" content="Rotate and scale a real DOM tree every frame via drawElementImage." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <style>
+      .canvas-host {
+        position: relative;
+        min-height: 520px;
+        background:
+          radial-gradient(900px 500px at 80% -10%, rgba(124,92,255,.10), transparent 60%),
+          radial-gradient(700px 400px at 10% 110%, rgba(34,211,238,.08), transparent 60%),
+          #0a0c12;
+        overflow: hidden;
+      }
+      .canvas-host__label {
+        position: absolute;
+        top: 12px; left: 14px;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10.5px;
+        letter-spacing: .14em;
+        text-transform: uppercase;
+        color: var(--text-mute);
+        background: rgba(11,13,18,.7);
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        z-index: 5;
+        pointer-events: none;
+      }
+      .diag {
+        position: absolute;
+        right: 12px; top: 12px;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 10px;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px;
+        background: rgba(11,13,18,.7);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--text-dim);
+        pointer-events: none;
+      }
+      .diag__dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: var(--warn);
+        box-shadow: 0 0 0 3px rgba(251,191,36,.18);
+      }
+      .diag[data-state="ok"]  .diag__dot { background: var(--good); box-shadow: 0 0 0 3px rgba(52,211,153,.18); }
+      .diag[data-state="bad"] .diag__dot { background: var(--bad);  box-shadow: 0 0 0 3px rgba(248,113,113,.18); }
+
+      canvas.scene {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 520px;
+        pointer-events: none;
+      }
+      canvas.scene > * { pointer-events: auto; }
+
+      /* The card we're going to tilt. Keep transform-origin at 0,0 so the
+         transform returned by drawElementImage maps cleanly. */
+      .product {
+        width: 280px;
+        background: linear-gradient(180deg, #1c2332, #10141d);
+        border: 1px solid #2a3243;
+        border-radius: 16px;
+        box-shadow: 0 30px 60px -30px rgba(0,0,0,.7);
+        overflow: hidden;
+        font-size: 14px;
+        color: var(--text);
+        transform-origin: 0 0;
+      }
+      .product__hero {
+        height: 130px;
+        background:
+          radial-gradient(160px 100px at 30% 30%, #c4b5fd, transparent 70%),
+          radial-gradient(220px 140px at 75% 80%, #67e8f9, transparent 65%),
+          linear-gradient(135deg, #4c1d95, #0e7490);
+        position: relative;
+        overflow: hidden;
+      }
+      /* A sweeping highlight across the hero. Doubles as the animation
+         driver — its constant motion forces the canvas's onpaint to fire
+         every compositor frame. */
+      .product__hero::after {
+        content: "";
+        position: absolute;
+        top: 0; bottom: 0;
+        width: 70px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,.18), transparent);
+        transform: translateX(-70px);
+      }
+      .product[data-animate="true"] .product__hero::after {
+        animation: heroSweep 2.6s ease-in-out infinite;
+      }
+      @keyframes heroSweep {
+        0%   { transform: translateX(-70px); }
+        100% { transform: translateX(280px); }
+      }
+      .product__body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+      .product__row { display: flex; align-items: center; justify-content: space-between; }
+      .product__title { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+      .product__sub { color: var(--text-mute); font-size: 12px; }
+      .product__price { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 18px; color: #c4b5fd; font-variant-numeric: tabular-nums; }
+      .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+      .pill {
+        font-size: 11px; padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border-strong);
+        background: var(--bg);
+        color: var(--text-dim);
+        cursor: pointer;
+        transition: background .12s ease, color .12s ease, border-color .12s ease;
+      }
+      .pill[aria-pressed="true"] {
+        background: rgba(124,92,255,.18);
+        color: #c4b5fd;
+        border-color: rgba(124,92,255,.5);
+      }
+      .product__cta {
+        margin-top: 4px;
+        background: linear-gradient(180deg, #8a6bff, #6b4dff);
+        color: white;
+        border: 0;
+        padding: 10px 14px;
+        border-radius: 10px;
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
+        box-shadow: 0 6px 18px -6px rgba(124,92,255,.6), inset 0 1px 0 rgba(255,255,255,.18);
+      }
+      .product__cta:hover { background: linear-gradient(180deg, #9778ff, #7558ff); }
+      .product__cta:active { transform: translateY(1px); }
+      .product__notice {
+        margin: 0;
+        font-size: 12px;
+        color: var(--text-mute);
+        min-height: 1.4em;
+      }
+
+      /* Controls */
+      .controls {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
+        padding: 14px 18px;
+        border-top: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(255,255,255,.015), transparent);
+      }
+      .controls__group {
+        display: flex; align-items: center; gap: 8px;
+        padding: 4px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg);
+      }
+      .seg {
+        background: transparent; border: 0;
+        color: var(--text-dim);
+        padding: 6px 12px; border-radius: 7px;
+        font: inherit; font-size: 13px; cursor: pointer;
+      }
+      .seg[aria-pressed="true"] {
+        background: var(--bg-elev-2);
+        color: var(--text);
+        box-shadow: inset 0 0 0 1px var(--border-strong);
+      }
+      .slider {
+        display: flex; align-items: center; gap: 10px;
+        font-size: 12.5px;
+        color: var(--text-dim);
+      }
+      .slider input[type="range"] {
+        width: 140px;
+        accent-color: var(--accent);
+      }
+      .slider__val {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 12px;
+        color: var(--text);
+        min-width: 4ch;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .controls__spacer { flex: 1; }
+      .stat {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11.5px; color: var(--text-mute);
+      }
+
+      .notice {
+        margin: 18px 22px 22px;
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg);
+        font-size: 13px;
+        color: var(--text-dim);
+        line-height: 1.55;
+      }
+      .notice[data-tone="warn"]  { border-color: rgba(251,191,36,.4);  background: rgba(251,191,36,.06);  color: #fde68a; }
+      .notice[data-tone="error"] { border-color: rgba(248,113,113,.5); background: rgba(248,113,113,.08); color: #fecaca; }
+
+      .fallback-host {
+        position: absolute; inset: 0;
+        display: grid; place-items: center;
+        padding: 56px 22px 22px;
+      }
+      .fallback-host[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 02 · Effects</p>
+            <h1 class="example__title">Live transforms</h1>
+            <p class="example__intro">
+              The painted card rotates, scales, and tracks your cursor — but every button, every
+              tag pill is still clickable. The transform returned by <code>drawElementImage()</code> keeps
+              the DOM hit-box pinned to the painted pixels no matter how it twists.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · ctx.rotate + ctx.scale + drawElementImage</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+
+            <canvas class="scene" id="scene" layoutsubtree>
+              <article class="product" id="source" data-animate="true">
+                <div class="product__hero" aria-hidden="true"></div>
+                <div class="product__body">
+                  <div class="product__row">
+                    <div>
+                      <h2 class="product__title">Aurora Headphones</h2>
+                      <span class="product__sub">Spatial audio, 38h battery</span>
+                    </div>
+                    <span class="product__price">$249</span>
+                  </div>
+                  <div class="pills" id="pill-row">
+                    <button class="pill" aria-pressed="true"  data-color="violet">Violet</button>
+                    <button class="pill" aria-pressed="false" data-color="cyan">Cyan</button>
+                    <button class="pill" aria-pressed="false" data-color="rose">Rose</button>
+                    <button class="pill" aria-pressed="false" data-color="amber">Amber</button>
+                  </div>
+                  <button class="product__cta" id="cta">Add to bag</button>
+                  <p class="product__notice" id="product-notice">Hover the canvas — the card follows your cursor.</p>
+                </div>
+              </article>
+            </canvas>
+
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <div class="controls__group" role="group" aria-label="Motion mode">
+              <button class="seg" id="mode-cursor" aria-pressed="true">Follow cursor</button>
+              <button class="seg" id="mode-spin"   aria-pressed="false">Auto-spin</button>
+              <button class="seg" id="mode-still"  aria-pressed="false">Still</button>
+            </div>
+            <label class="slider">
+              <span>Tilt</span>
+              <input type="range" id="tilt" min="0" max="45" value="22" />
+              <span class="slider__val" id="tilt-val">22°</span>
+            </label>
+            <label class="slider">
+              <span>Scale pulse</span>
+              <input type="range" id="pulse" min="0" max="30" value="8" />
+              <span class="slider__val" id="pulse-val">8%</span>
+            </label>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>What's happening</h3>
+          <p>
+            Inside <code>onpaint</code> we wrap <code>drawElementImage()</code> with
+            <code>ctx.translate</code> → <code>ctx.rotate</code> → <code>ctx.scale</code>. The
+            returned transform composes all of those operations, so feeding it back into
+            <code>card.style.transform</code> keeps the DOM hit-box exactly under the painted
+            pixels — try clicking a colour pill while the card is mid-spin.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const ctx       = canvas.getContext('2d');
+        const source    = document.getElementById('source');
+        const host      = document.getElementById('canvas-host');
+        const fbHost    = document.getElementById('fallback-host');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+
+        const modeCursor = document.getElementById('mode-cursor');
+        const modeSpin   = document.getElementById('mode-spin');
+        const modeStill  = document.getElementById('mode-still');
+        const tiltIn     = document.getElementById('tilt');
+        const tiltVal    = document.getElementById('tilt-val');
+        const pulseIn    = document.getElementById('pulse');
+        const pulseVal   = document.getElementById('pulse-val');
+        const pillRow    = document.getElementById('pill-row');
+        const productNotice = document.getElementById('product-notice');
+        const cta        = document.getElementById('cta');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+
+        function setDiag(state, text) { diag.dataset.state = state; diagText.textContent = text; }
+        function showError(message, where) {
+          notice.hidden = false;
+          notice.dataset.tone = 'error';
+          notice.textContent = '';
+          const strong = document.createElement('strong');
+          strong.textContent = `Runtime error in ${where}: `;
+          const code = document.createElement('code');
+          code.textContent = message;
+          notice.append(strong, code);
+          setDiag('bad', `error in ${where}`);
+        }
+        window.addEventListener('error', (e) => showError(e.message || String(e.error), 'window'));
+
+        setDiag(supported ? 'ok' : 'bad',
+          supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        // ── Card state ────────────────────────────────────────────────
+        const colors = {
+          violet: { glow: '#a78bfa', accent: '#c4b5fd' },
+          cyan:   { glow: '#67e8f9', accent: '#67e8f9' },
+          rose:   { glow: '#fb7185', accent: '#fda4af' },
+          amber:  { glow: '#fbbf24', accent: '#fcd34d' },
+        };
+        function pickColor(name) {
+          for (const p of pillRow.querySelectorAll('.pill')) {
+            p.setAttribute('aria-pressed', p.dataset.color === name ? 'true' : 'false');
+          }
+          const c = colors[name];
+          source.querySelector('.product__price').style.color = c.accent;
+          source.querySelector('.product__hero').style.background = `
+            radial-gradient(160px 100px at 30% 30%, ${c.accent}, transparent 70%),
+            radial-gradient(220px 140px at 75% 80%, ${c.glow}, transparent 65%),
+            linear-gradient(135deg, #4c1d95, #0e7490)`;
+          productNotice.textContent = `Picked ${name}.`;
+        }
+        pillRow.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('.pill');
+          if (btn) pickColor(btn.dataset.color);
+        });
+        cta.addEventListener('click', () => {
+          productNotice.textContent = 'Added to bag ✓ (mid-spin, still totally clickable)';
+        });
+
+        // ── Demo state ────────────────────────────────────────────────
+        const state = {
+          mode: 'cursor',     // 'cursor' | 'spin' | 'still'
+          tiltDeg: 22,
+          pulsePct: 8,
+          mouseX: 0.5,        // 0..1 within canvas
+          mouseY: 0.5,
+        };
+        function setPressed(group, on) {
+          for (const b of group) b.setAttribute('aria-pressed', b === on ? 'true' : 'false');
+        }
+        modeCursor.addEventListener('click', () => { state.mode = 'cursor'; setPressed([modeCursor, modeSpin, modeStill], modeCursor); applyAnimClass(); });
+        modeSpin  .addEventListener('click', () => { state.mode = 'spin';   setPressed([modeCursor, modeSpin, modeStill], modeSpin);   applyAnimClass(); });
+        modeStill .addEventListener('click', () => { state.mode = 'still';  setPressed([modeCursor, modeSpin, modeStill], modeStill);  applyAnimClass(); });
+
+        tiltIn .addEventListener('input', () => { state.tiltDeg  = +tiltIn.value;  tiltVal.textContent  = `${state.tiltDeg}°`; });
+        pulseIn.addEventListener('input', () => { state.pulsePct = +pulseIn.value; pulseVal.textContent = `${state.pulsePct}%`; });
+
+        // Cursor tracking. Capture even while pointer is over the painted
+        // card (it has pointer-events: auto), so we use the host element.
+        host.addEventListener('pointermove', (ev) => {
+          const r = host.getBoundingClientRect();
+          state.mouseX = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+          state.mouseY = Math.max(0, Math.min(1, (ev.clientY - r.top)  / r.height));
+        });
+
+        // ── Animation driver ──────────────────────────────────────────
+        // The "animate" data attribute swaps the badge/hero CSS animation on
+        // and off. The animation provides the per-frame paint signal so the
+        // canvas's onpaint fires at compositor cadence without a JS rAF loop.
+        function applyAnimClass() {
+          source.dataset.animate = (state.mode === 'still') ? 'false' : 'true';
+        }
+        applyAnimClass();
+
+        // ── Sizing ────────────────────────────────────────────────────
+        function resize() {
+          const rect = host.getBoundingClientRect();
+          const w = Math.max(320, Math.floor(rect.width));
+          const h = Math.max(400, Math.floor(rect.height));
+          canvas.style.width  = `${w}px`;
+          canvas.style.height = `${h}px`;
+          canvas.width  = w;
+          canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host);
+        resize();
+
+        function nudge() {
+          // CSS-property toggle that forces a paint without affecting visuals.
+          source.style.opacity = source.style.opacity === '1' ? '0.999999' : '1';
+        }
+
+        // ── Paint ─────────────────────────────────────────────────────
+        let paintCount = 0;
+        let fpsT = performance.now();
+        let fpsAt = 0;
+
+        function paint() {
+          const w = canvas.width;
+          const h = canvas.height;
+          ctx.reset();
+
+          // Backdrop
+          const bg = ctx.createLinearGradient(0, 0, 0, h);
+          bg.addColorStop(0, '#0e1320');
+          bg.addColorStop(1, '#080a10');
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          // Concentric circles to make rotation/scale obvious
+          ctx.strokeStyle = 'rgba(255,255,255,.035)';
+          ctx.lineWidth = 1;
+          const cx = w / 2, cy = h / 2;
+          for (let i = 0; i < 6; i++) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, 60 + i * 60, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          const cardW = source.offsetWidth  || 280;
+          const cardH = source.offsetHeight || 360;
+
+          // Compute angle and scale based on mode
+          const t = performance.now() / 1000;
+          let angle = 0;
+          let scale = 1;
+          const maxRad = (state.tiltDeg * Math.PI) / 180;
+
+          if (state.mode === 'spin') {
+            angle = Math.sin(t * 0.6) * maxRad;
+            scale = 1 + (state.pulsePct / 100) * Math.sin(t * 1.1);
+          } else if (state.mode === 'cursor') {
+            // Tilt towards cursor — left/right rotates, top/bottom subtly scales
+            angle = (state.mouseX - 0.5) * 2 * maxRad;
+            const distFromCenter = Math.hypot(state.mouseX - 0.5, state.mouseY - 0.5);
+            scale = 1 + (state.pulsePct / 100) * (0.5 - distFromCenter);
+          }
+
+          try {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(angle);
+            ctx.scale(scale, scale);
+            // drawElementImage takes coords in the current ctx transform's
+            // space. Centering the card means passing -cardW/2, -cardH/2.
+            const transform = ctx.drawElementImage(source, -cardW / 2, -cardH / 2);
+            ctx.restore();
+
+            if (transform && typeof transform.toString === 'function') {
+              source.style.transform = transform.toString();
+            }
+          } catch (err) {
+            showError(err.message, 'drawElementImage');
+            return;
+          }
+
+          paintCount++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paintCount - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · ${(angle * 180 / Math.PI).toFixed(0)}° · ${scale.toFixed(2)}×`;
+            fpsT = now;
+            fpsAt = paintCount;
+          }
+        }
+
+        if (supported) {
+          canvas.onpaint = paint;
+          nudge();
+        } else {
+          mountFallback();
+        }
+
+        // ── Fallback ──────────────────────────────────────────────────
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong');
+          strong.textContent = 'drawElementImage() not detected.';
+          const code = document.createElement('code');
+          code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(
+            strong,
+            ' This demo needs the HTML-in-Canvas flag enabled (',
+            code,
+            '). Showing the card as plain DOM in the meantime.',
+          );
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

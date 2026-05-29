@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>04 · HTML particles — HTML in Canvas</title>
+    <meta name="description" content="Hundreds of clones of a single DOM node flocking around the cursor." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 600px; }
+      canvas.scene { min-height: 600px; }
+
+      .seed {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 5px 10px;
+        background: linear-gradient(180deg, #1e2536, #11151e);
+        border: 1px solid #2a3243;
+        border-radius: 999px;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 12.5px;
+        color: var(--text);
+        transform-origin: 0 0;
+        cursor: pointer;
+      }
+      .seed__dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: linear-gradient(135deg, #7c5cff, #22d3ee);
+      }
+      .seed[data-animate="true"] .seed__dot {
+        animation: dotPulse 1.2s ease-in-out infinite;
+      }
+      @keyframes dotPulse {
+        50% { transform: scale(1.6); filter: brightness(1.4); }
+      }
+      .seed:hover { border-color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 04 · Effects</p>
+            <h1 class="example__title">HTML particles</h1>
+            <p class="example__intro">
+              One source element, painted hundreds of times. Each clone is a real DOM render,
+              flocking around your cursor. Only one — the "real" pill on the right side — keeps
+              its hit-box; the rest are pixels.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · drawElementImage × N</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+            <canvas class="scene" id="scene" layoutsubtree>
+              <button class="seed" id="source" data-animate="true">
+                <span class="seed__dot"></span><span id="seed-text">click me</span>
+              </button>
+            </canvas>
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <label class="slider"><span>Particles</span><input type="range" id="count" min="20" max="400" value="160" /><span class="slider__val" id="count-val">160</span></label>
+            <label class="slider"><span>Attraction</span><input type="range" id="attr" min="0" max="100" value="40" /><span class="slider__val" id="attr-val">40%</span></label>
+            <label class="slider"><span>Trail</span><input type="range" id="trail" min="0" max="90" value="60" /><span class="slider__val" id="trail-val">60%</span></label>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>One element, many paints</h3>
+          <p>
+            Each particle is a separate <code>drawElementImage()</code> call against the same DOM
+            node. The browser only has one paint record but the canvas can stamp it as many times
+            as it wants. The trail effect is a translucent fillRect drawn between frames instead
+            of a full clear — a cheap way to get persistence.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const ctx       = canvas.getContext('2d');
+        const source    = document.getElementById('source');
+        const host      = document.getElementById('canvas-host');
+        const fbHost    = document.getElementById('fallback-host');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+        const seedText  = document.getElementById('seed-text');
+
+        const countIn = document.getElementById('count'), countVal = document.getElementById('count-val');
+        const attrIn  = document.getElementById('attr'),  attrVal  = document.getElementById('attr-val');
+        const trailIn = document.getElementById('trail'), trailVal = document.getElementById('trail-val');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        let clicks = 0;
+        source.addEventListener('click', () => { clicks++; seedText.textContent = `clicked ${clicks}×`; });
+
+        const state = { count: 160, attract: 0.40, trail: 0.60, mx: 0.5, my: 0.5 };
+        countIn.addEventListener('input', () => { state.count   = +countIn.value;       countVal.textContent = state.count; ensureParticles(); });
+        attrIn .addEventListener('input', () => { state.attract = +attrIn.value / 100;  attrVal.textContent  = `${attrIn.value}%`; });
+        trailIn.addEventListener('input', () => { state.trail   = +trailIn.value / 100; trailVal.textContent = `${trailIn.value}%`; });
+
+        host.addEventListener('pointermove', (ev) => {
+          const r = host.getBoundingClientRect();
+          state.mx = (ev.clientX - r.left) / r.width;
+          state.my = (ev.clientY - r.top)  / r.height;
+        });
+
+        // Particle system
+        const particles = [];
+        function ensureParticles() {
+          const w = canvas.width || host.clientWidth;
+          const h = canvas.height || host.clientHeight;
+          while (particles.length < state.count) {
+            particles.push({
+              x: Math.random() * w,
+              y: Math.random() * h,
+              vx: (Math.random() - 0.5) * 2,
+              vy: (Math.random() - 0.5) * 2,
+              phase: Math.random() * Math.PI * 2,
+            });
+          }
+          if (particles.length > state.count) particles.length = state.count;
+        }
+
+        function nudge() { source.style.opacity = source.style.opacity === '1' ? '0.999999' : '1'; }
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(320, Math.floor(r.width));
+          const h = Math.max(500, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          ensureParticles();
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host); resize();
+
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+
+          // Trail effect — paint a translucent rect over previous frame
+          // instead of clearing. Note: ctx.reset() would wipe; we skip it.
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = `rgba(8, 10, 16, ${1 - state.trail})`;
+          ctx.fillRect(0, 0, w, h);
+
+          // Cursor target in canvas coords
+          const tx = state.mx * w;
+          const ty = state.my * h;
+
+          // Update + draw particles
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            // Attraction towards cursor
+            const dx = tx - p.x, dy = ty - p.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            p.vx += (dx / dist) * state.attract * 0.5;
+            p.vy += (dy / dist) * state.attract * 0.5;
+            // Damping + jitter
+            p.vx = p.vx * 0.92 + Math.sin(p.phase) * 0.3;
+            p.vy = p.vy * 0.92 + Math.cos(p.phase) * 0.3;
+            p.phase += 0.08;
+            p.x += p.vx;
+            p.y += p.vy;
+            // Wrap edges
+            if (p.x < -40) p.x = w + 40;
+            if (p.x > w + 40) p.x = -40;
+            if (p.y < -20) p.y = h + 20;
+            if (p.y > h + 20) p.y = -20;
+          }
+
+          // Draw all particles. The LAST one becomes the interactive source —
+          // it's pinned to the right side rather than flocking, so the user
+          // always knows where to click.
+          try {
+            for (let i = 0; i < particles.length - 1; i++) {
+              const p = particles[i];
+              ctx.drawElementImage(source, Math.round(p.x), Math.round(p.y));
+            }
+            // The "real" interactive pill — fixed top-right
+            const realX = w - (source.offsetWidth || 120) - 30;
+            const realY = 30;
+            const transform = ctx.drawElementImage(source, realX, realY);
+            source.style.transform = transform.toString();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            return;
+          }
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · ${particles.length + 1} draws/frame`;
+            fpsT = now; fpsAt = paints;
+          }
+        }
+
+        if (supported) { canvas.onpaint = paint; nudge(); }
+        else mountFallback();
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const s = document.createElement('strong'); s.textContent = 'drawElementImage() not detected.';
+          const c = document.createElement('code'); c.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(s, ' Enable ', c, ' for the particle field.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

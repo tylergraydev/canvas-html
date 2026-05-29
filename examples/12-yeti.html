@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>12 · Yeti watches you type — HTML in Canvas</title>
+    <meta name="description" content="A yeti's eyes follow your text caret as you type." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host {
+        min-height: 640px;
+        background:
+          radial-gradient(900px 600px at 50% 110%, rgba(34,211,238,.12), transparent 60%),
+          linear-gradient(180deg, #0e1428 0%, #060a14 60%, #03050a 100%);
+      }
+      canvas.scene { min-height: 640px; }
+
+      .scene-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+        padding: 0;
+        transform-origin: 0 0;
+      }
+
+      /* ──────────── Yeti (flat, simple) ──────────── */
+      .yeti {
+        position: relative;
+        width: 200px;
+        height: 180px;
+        flex-shrink: 0;
+      }
+      .yeti__head {
+        position: absolute;
+        inset: 0;
+        background: #f1f7fc;
+        border: 3px solid #b6c8d6;
+        border-radius: 50%;
+      }
+      .scene-wrap[data-animate="true"] .yeti__head {
+        animation: bob 3.4s ease-in-out infinite;
+      }
+      @keyframes bob {
+        50% { transform: translateY(-4px); }
+      }
+
+      .yeti__tuft {
+        position: absolute;
+        top: -10px; left: 50%;
+        transform: translateX(-50%);
+        width: 60px; height: 22px;
+        background: #f1f7fc;
+        border: 3px solid #b6c8d6;
+        border-radius: 50% 50% 0 0;
+        z-index: 1;
+      }
+
+      .yeti__cheek {
+        position: absolute;
+        bottom: 38px;
+        width: 22px; height: 12px;
+        border-radius: 50%;
+        background: rgba(251,113,133,.45);
+      }
+      .yeti__cheek--l { left: 22px; }
+      .yeti__cheek--r { right: 22px; }
+
+      .yeti__mouth {
+        position: absolute;
+        bottom: 36px; left: 50%;
+        transform: translateX(-50%);
+        width: 26px; height: 12px;
+        border: 3px solid #2c3e50;
+        border-top: 0;
+        border-radius: 0 0 26px 26px;
+      }
+
+      /* Eyes — flat white discs with dark pupils */
+      .yeti__eyes {
+        position: absolute;
+        top: 55px;
+        left: 0; right: 0;
+        display: flex; justify-content: center; gap: 24px;
+      }
+      .yeti__eye {
+        position: relative;
+        width: 46px; height: 46px;
+        background: #ffffff;
+        border: 3px solid #2c3e50;
+        border-radius: 50%;
+        overflow: hidden;
+      }
+      .yeti__pupil {
+        position: absolute;
+        top: 50%; left: 50%;
+        width: 20px; height: 20px;
+        background: #1a1f2e;
+        border-radius: 50%;
+        transform: translate(-50%, -50%) translate(var(--px, 0px), var(--py, 0px));
+        /* No transition — pupil position is interpolated in JS so we can
+           force a counterclockwise roll over the top of the eye instead of
+           a straight-line shortcut through the centre. */
+      }
+      .yeti__pupil::after {
+        content: "";
+        position: absolute;
+        top: 18%; left: 22%;
+        width: 5px; height: 5px;
+        background: rgba(255,255,255,.92);
+        border-radius: 50%;
+      }
+      .yeti__lid {
+        position: absolute; inset: 0;
+        background: #f1f7fc;
+        transform: translateY(-100%);
+      }
+      .scene-wrap[data-animate="true"] .yeti__lid {
+        animation: blink 5.4s ease-in-out infinite;
+      }
+      @keyframes blink {
+        0%, 92%, 100% { transform: translateY(-100%); }
+        94%, 96%      { transform: translateY(0%); }
+      }
+
+      /* ──────────── Text input column ──────────── */
+      .pad {
+        width: 420px;
+        background: linear-gradient(180deg, #14182a, #0a0d18);
+        border: 1px solid #2a3243;
+        border-radius: 14px;
+        box-shadow: 0 18px 40px -20px rgba(0,0,0,.7);
+        padding: 14px;
+        position: relative;
+        margin-bottom: 30px;
+      }
+      .pad__label {
+        display: block;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10.5px;
+        letter-spacing: .18em;
+        text-transform: uppercase;
+        color: var(--text-mute);
+        margin: 0 4px 8px;
+      }
+
+      /* The textarea + its caret-tracking mirror share these dimensions and
+         typography. The mirror is hidden but laid out identically so its
+         caret-marker span's getBoundingClientRect matches the real caret. */
+      .pad__field {
+        position: relative;
+        width: 100%; height: 200px;
+      }
+      .pad__ta, .pad__mirror {
+        position: absolute;
+        inset: 0;
+        margin: 0;
+        padding: 14px 16px;
+        box-sizing: border-box;
+        width: 100%;
+        height: 100%;
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+        font-family: "Inter", system-ui, sans-serif;
+        font-size: 15px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
+        word-wrap: break-word;
+      }
+      .pad__ta {
+        outline: none;
+        resize: none;
+      }
+      .pad__ta:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,.22); }
+      .pad__mirror {
+        visibility: hidden;
+        pointer-events: none;
+        z-index: -1;
+      }
+      .caret-marker {
+        display: inline-block;
+        width: 1px;
+        height: 1.2em;
+        vertical-align: text-top;
+      }
+
+      .pad__hint {
+        margin: 10px 4px 0;
+        font-size: 11.5px;
+        color: var(--text-mute);
+        display: flex; justify-content: space-between;
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 12 · Interactive</p>
+            <h1 class="example__title">Yeti watches you type</h1>
+            <p class="example__intro">
+              His eyes follow your <em>text caret</em>, not your mouse. Move the caret around the
+              textarea with arrow keys, click to reposition it, or just type — the pupils swivel
+              toward wherever the cursor is.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · drawElementImage(yeti+pad) + caret tracking</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+            <canvas class="scene" id="scene" layoutsubtree>
+              <div class="scene-wrap" id="source" data-animate="true">
+
+                <!-- Yeti -->
+                <div class="yeti" id="yeti">
+                  <div class="yeti__tuft"></div>
+                  <div class="yeti__head"></div>
+                  <div class="yeti__eyes">
+                    <div class="yeti__eye" id="eye-l">
+                      <div class="yeti__pupil" id="pupil-l"></div>
+                      <div class="yeti__lid"></div>
+                    </div>
+                    <div class="yeti__eye" id="eye-r">
+                      <div class="yeti__pupil" id="pupil-r"></div>
+                      <div class="yeti__lid"></div>
+                    </div>
+                  </div>
+                  <div class="yeti__cheek yeti__cheek--l"></div>
+                  <div class="yeti__cheek yeti__cheek--r"></div>
+                  <div class="yeti__mouth"></div>
+                </div>
+
+                <!-- Text pad with caret-tracking mirror -->
+                <div class="pad">
+                  <span class="pad__label">Give him something to watch</span>
+                  <div class="pad__field">
+                    <textarea class="pad__ta" id="ta" spellcheck="false" autocomplete="off"
+                              placeholder="Type, arrow around, click to reposition the caret…"></textarea>
+                    <div class="pad__mirror" id="mirror" aria-hidden="true"></div>
+                  </div>
+                  <div class="pad__hint">
+                    <span>↹ Tab into the textarea. ⇧ Use arrow keys.</span>
+                    <span id="cursor-pos">caret 0</span>
+                  </div>
+                </div>
+
+              </div>
+            </canvas>
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <label class="slider"><span>Pupil reach</span><input type="range" id="reach" min="2" max="16" value="12" /><span class="slider__val" id="reach-val">12px</span></label>
+            <label class="slider"><span>Latency</span><input type="range" id="latency" min="0" max="500" value="60" /><span class="slider__val" id="latency-val">60ms</span></label>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>How the eyes find the caret</h3>
+          <p>
+            A hidden <em>mirror</em> <code>&lt;div&gt;</code> sits behind the textarea with identical
+            font, padding, and width. On every input or selection change we rebuild its content as
+            <code>before + &lt;span class="caret-marker"&gt; + after</code>. That marker's
+            <code>getBoundingClientRect()</code> is the caret's screen position. From there it's
+            a simple <code>atan2()</code> from each eye to the marker.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const ctx       = canvas.getContext('2d');
+        const source    = document.getElementById('source');
+        const host      = document.getElementById('canvas-host');
+        const fbHost    = document.getElementById('fallback-host');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+
+        const ta        = document.getElementById('ta');
+        const mirror    = document.getElementById('mirror');
+        const eyeL      = document.getElementById('eye-l');
+        const eyeR      = document.getElementById('eye-r');
+        const pupilL    = document.getElementById('pupil-l');
+        const pupilR    = document.getElementById('pupil-r');
+        const cursorPos = document.getElementById('cursor-pos');
+
+        const reachIn   = document.getElementById('reach'),   reachVal   = document.getElementById('reach-val');
+        const latencyIn = document.getElementById('latency'), latencyVal = document.getElementById('latency-val');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        // `roll` controls how fast the pupil chases its target angle.
+        // 1.0 = instant, 0.05 = lazy. With the angle-based interpolation,
+        // bigger sweeps (like the CCW roll on a right→left jump) take
+        // proportionally longer to play out, which is exactly what we want.
+        const state = { reach: 12, roll: 0.22 };
+        reachIn  .addEventListener('input', () => {
+          state.reach = +reachIn.value; reachVal.textContent = `${state.reach}px`;
+        });
+        latencyIn.addEventListener('input', () => {
+          // Map 0–500ms onto a 1.0–0.04 lerp rate.
+          const v = +latencyIn.value;
+          state.roll = Math.max(0.03, 1 - v / 520);
+          latencyVal.textContent = `${v}ms`;
+        });
+
+        // Per-eye animation state — angle and distance smoothed each rAF.
+        const eyeState = [
+          { eye: eyeL, pupil: pupilL, cur: 0, tgt: 0, dist: 0 },
+          { eye: eyeR, pupil: pupilR, cur: 0, tgt: 0, dist: 0 },
+        ];
+
+        // ── Caret tracking via hidden mirror element ──────────────────
+        function getCaretRect() {
+          // Rebuild mirror: text-before + caret-marker + text-after.
+          // Use text nodes (no innerHTML) to keep it safe and exact.
+          mirror.textContent = '';
+          const v = ta.value;
+          const pos = ta.selectionStart;
+          mirror.append(document.createTextNode(v.substring(0, pos)));
+          const marker = document.createElement('span');
+          marker.className = 'caret-marker';
+          // Use a zero-width space so the marker has a baseline-aligned height
+          marker.textContent = '​';
+          mirror.append(marker);
+          mirror.append(document.createTextNode(v.substring(pos)));
+          // Mirror needs to match scroll position so caret stays in view
+          mirror.scrollTop = ta.scrollTop;
+          mirror.scrollLeft = ta.scrollLeft;
+          return marker.getBoundingClientRect();
+        }
+
+        function updateEyes() {
+          const caret = getCaretRect();
+          const cx = caret.left + caret.width / 2;
+          const cy = caret.top + caret.height / 2;
+          for (const e of eyeState) {
+            const r = e.eye.getBoundingClientRect();
+            const ex = r.left + r.width / 2;
+            const ey = r.top + r.height / 2;
+            const dx = cx - ex;
+            const dy = cy - ey;
+            e.dist = Math.hypot(dx, dy);
+
+            // Raw target angle in (-π, π], measured in screen coordinates
+            // where +y is down. So right=0, down=+π/2, left=±π, up=-π/2.
+            const raw = Math.atan2(dy, dx);
+
+            // Unwrap so `tgt` is continuous (no ±π jump) — pick the wrapping
+            // that keeps the change ≤ π from the previous target.
+            let unwrapped = raw;
+            while (unwrapped - e.tgt >  Math.PI) unwrapped -= 2 * Math.PI;
+            while (unwrapped - e.tgt < -Math.PI) unwrapped += 2 * Math.PI;
+
+            // Special case: caret crossed from the right hemisphere to the
+            // left hemisphere. Force the target to be LESS than current so
+            // the lerp sweeps CCW (over the top of the eye).
+            const wasRight = Math.cos(e.tgt) >  0.05;
+            const isLeft   = Math.cos(raw) < -0.05;
+            if (wasRight && isLeft) {
+              while (unwrapped > e.tgt) unwrapped -= 2 * Math.PI;
+            }
+            e.tgt = unwrapped;
+          }
+          cursorPos.textContent = `caret ${ta.selectionStart}`;
+        }
+
+        // Per-frame pupil interpolation. Runs inside the same rAF that drives
+        // paints — no extra loop. Lerp `cur` toward `tgt` and set CSS vars.
+        function tickEyes() {
+          for (const e of eyeState) {
+            e.cur += (e.tgt - e.cur) * state.roll;
+            const k = Math.min(1, e.dist / 60);
+            const len = state.reach * k;
+            const px = Math.cos(e.cur) * len;
+            const py = Math.sin(e.cur) * len;
+            e.pupil.style.setProperty('--px', `${px.toFixed(2)}px`);
+            e.pupil.style.setProperty('--py', `${py.toFixed(2)}px`);
+          }
+        }
+
+        // Selection change fires for every caret move including arrow keys
+        // and clicks. We schedule updateEyes on rAF to debounce within frames.
+        let eyesQueued = false;
+        function scheduleEyes() {
+          if (eyesQueued) return;
+          eyesQueued = true;
+          requestAnimationFrame(() => { eyesQueued = false; updateEyes(); });
+        }
+        document.addEventListener('selectionchange', () => {
+          if (document.activeElement === ta) scheduleEyes();
+        });
+        ta.addEventListener('input', scheduleEyes);
+        ta.addEventListener('click', scheduleEyes);
+        ta.addEventListener('keyup', scheduleEyes);
+
+        // ── Sizing ────────────────────────────────────────────────────
+        function nudge() { source.style.opacity = source.style.opacity === '1' ? '0.999999' : '1'; }
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(420, Math.floor(r.width));
+          const h = Math.max(560, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host); resize();
+
+        // ── Continuous paint driver + eye animation ───────────────────
+        let drvFlag = false;
+        function driver() {
+          drvFlag = !drvFlag;
+          source.style.opacity = drvFlag ? '1' : '0.999999';
+          tickEyes();
+          requestAnimationFrame(driver);
+        }
+
+        // ── Paint ─────────────────────────────────────────────────────
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          const t = performance.now() / 1000;
+          ctx.reset();
+
+          // Snowy ground + gentle drifting snowflakes
+          const sky = ctx.createLinearGradient(0, 0, 0, h);
+          sky.addColorStop(0, '#0c1428');
+          sky.addColorStop(0.7, '#08101e');
+          sky.addColorStop(1, '#02050a');
+          ctx.fillStyle = sky;
+          ctx.fillRect(0, 0, w, h);
+
+          ctx.fillStyle = 'rgba(255,255,255,.85)';
+          for (let i = 0; i < 60; i++) {
+            const flakeX = (i * 47 + Math.sin(t * 0.5 + i) * 30) % w;
+            const flakeY = ((i * 89 + t * 30) % (h + 40)) - 20;
+            const size = 1 + (i % 4) * 0.6;
+            ctx.globalAlpha = 0.4 + (i % 5) * 0.1;
+            ctx.fillRect(flakeX, flakeY, size, size);
+          }
+          ctx.globalAlpha = 1;
+
+          // Soft snow drift along the bottom
+          const snow = ctx.createLinearGradient(0, h * 0.72, 0, h);
+          snow.addColorStop(0, 'rgba(255,255,255,0)');
+          snow.addColorStop(1, 'rgba(200,220,240,0.6)');
+          ctx.fillStyle = snow;
+          ctx.fillRect(0, h * 0.72, w, h * 0.28);
+
+          // Lay out the scene-wrap centered horizontally and vertically.
+          const srcW = source.offsetWidth  || 460;
+          const srcH = source.offsetHeight || 480;
+          const x = Math.round((w - srcW) / 2);
+          const y = Math.round((h - srcH) / 2);
+
+          try {
+            const transform = ctx.drawElementImage(source, x, y);
+            source.style.transform = transform.toString();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            return;
+          }
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · pupil reach ${state.reach}px`;
+            fpsT = now; fpsAt = paints;
+          }
+
+          // After the source has been laid out by the canvas, we have valid
+          // eye and caret rects — kick off the first eye update if needed.
+          if (paints === 2) {
+            ta.focus();
+            updateEyes();
+          }
+        }
+
+        if (supported) {
+          canvas.onpaint = paint;
+          nudge();
+          driver();
+        } else {
+          mountFallback();
+        }
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const s = document.createElement('strong'); s.textContent = 'drawElementImage() not detected.';
+          const c = document.createElement('code'); c.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(s, ' Enable ', c, ' to meet the yeti.');
+          stat.textContent = 'fallback · plain DOM (yeti still tracks)';
+          // The yeti tracking still works in plain DOM — wire it up.
+          setTimeout(() => { ta.focus(); updateEyes(); }, 100);
+        }
+      })();
+    </script>
+  </body>
+</html>

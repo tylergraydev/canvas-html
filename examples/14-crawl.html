@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>14 · Title crawl — HTML in Canvas</title>
+    <meta name="description" content="A 3D-perspective scrolling title crawl via WebGL texElementImage2D." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host {
+        min-height: 640px;
+        background: linear-gradient(180deg, #02030a, #000);
+      }
+      canvas.scene { min-height: 640px; }
+
+      /* The crawl source — a flat, scrolling text window that WebGL samples
+         as a texture and renders on a tilted 3D plane. Background is
+         transparent so the starfield shows through behind the text. */
+      .crawl-stage {
+        position: absolute;
+        top: 0; left: 0;
+        /* width/height set in JS */
+        overflow: hidden;
+        background: transparent;
+      }
+      .crawl {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        width: 78%;
+        max-width: 760px;
+        /* height set in JS to match the stage */
+        overflow: hidden;
+        transform: translateX(-50%);
+      }
+      .crawl__inner {
+        position: absolute;
+        left: 0; right: 0;
+        top: 0;
+        color: #ffe81f;
+        font-family: "Pathway Gothic One", "Trebuchet MS", "Helvetica Neue", sans-serif;
+        font-weight: 700;
+        font-size: 30px;
+        line-height: 1.32;
+        text-align: justify;
+        text-shadow: 0 0 6px rgba(255, 232, 31, 0.25);
+        transform: translateY(var(--scroll, 880px));
+        will-change: transform;
+      }
+      .crawl__inner h1 { font-size: 1.5em; text-align: center; margin: 0 0 0.6em; }
+      .crawl__inner h2 { font-size: 1.1em; text-align: center; margin: 0 0 0.4em; text-transform: uppercase; letter-spacing: .05em; }
+      .crawl__inner p  { margin: 0 0 0.7em; }
+
+      .script-editor {
+        margin: 20px 22px 0;
+        padding: 14px 16px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .script-editor label {
+        font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-mute);
+      }
+      .script-editor textarea {
+        width: 100%; min-height: 110px; max-height: 220px;
+        background: var(--bg-elev);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        color: var(--text);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 12.5px; line-height: 1.5;
+        padding: 10px 12px; outline: none; resize: vertical;
+      }
+      .script-editor textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,.22); }
+      .script-editor__hint { font-size: 11.5px; color: var(--text-mute); }
+      .script-editor__hint code { background: var(--bg-elev-2); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+      .script-editor__url { display: flex; gap: 8px; align-items: center; }
+      .script-editor__url input {
+        flex: 1;
+        background: var(--bg-elev); border: 1px solid var(--border-strong); border-radius: 8px;
+        color: var(--text); font: inherit; font-size: 12.5px; padding: 8px 10px; outline: none;
+      }
+      .script-editor__url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,.22); }
+      .script-editor__url button {
+        background: var(--bg-elev); border: 1px solid var(--border-strong); color: var(--text);
+        font: inherit; font-size: 12.5px; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+      }
+      .script-editor__url button:hover { background: var(--bg-elev-2); }
+      .script-editor__status { font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--text-mute); min-height: 1.3em; }
+      .script-editor__status[data-state="ok"]  { color: var(--good); }
+      .script-editor__status[data-state="err"] { color: var(--bad); }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 14 · Interactive</p>
+            <h1 class="example__title">Title crawl</h1>
+            <p class="example__intro">
+              A 3D-perspective scrolling title crawl. The text is a real, scrolling DOM element
+              uploaded to the GPU with <code>gl.texElementImage2D()</code> and rendered on a tilted
+              plane in WebGL — so it genuinely recedes toward a vanishing point. Edit the textarea
+              or fetch a script from a URL to put anything on screen.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">WebGL2 · texElementImage2D on a tilted plane</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+            <canvas class="scene" id="scene" layoutsubtree>
+              <div class="crawl-stage" id="source">
+                <div class="crawl">
+                  <div class="crawl__inner" id="crawl-inner"></div>
+                </div>
+              </div>
+            </canvas>
+          </div>
+
+          <div class="script-editor">
+            <label for="script">Script</label>
+            <textarea id="script" spellcheck="false"># Episode XIII
+## A New Buzz
+
+It is a season of pollination. The meadow hums with the work of a thousand colonies, each tending to the bloom of a new spring.
+
+Deep within the hidden hexagonal chambers of Hive Theta, a young forager dreams of flights beyond the clover fields — to places no scout has ever returned from.
+
+Pursued by the queen's loyal drones, she carries a rumour of pollen so rare it could feed the colony for a hundred generations, and a question that may change the meadow forever....</textarea>
+            <span class="script-editor__hint">
+              Lines starting with <code>#</code> become big titles, <code>##</code> subheads, blank lines separate paragraphs.
+            </span>
+            <div class="script-editor__url">
+              <input type="url" id="script-url" placeholder="Paste a URL — e.g. a GitHub gist raw URL — to fetch text from" />
+              <button id="fetch-url" type="button">Fetch</button>
+            </div>
+            <span class="script-editor__status" id="fetch-status"></span>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <label class="slider"><span>Scroll</span><input type="range" id="speed" min="20" max="400" value="80" /><span class="slider__val" id="speed-val">80 px/s</span></label>
+            <label class="slider"><span>Tilt</span><input type="range" id="tilt" min="20" max="75" value="50" /><span class="slider__val" id="tilt-val">50°</span></label>
+            <label class="slider"><span>Stars</span><input type="range" id="stars" min="0" max="600" value="260" /><span class="slider__val" id="stars-val">260</span></label>
+            <button class="seg" id="restart" style="border:1px solid var(--border); padding:7px 12px; border-radius:8px; cursor:pointer;">Restart</button>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>How the perspective works</h3>
+          <p>
+            The text scrolls flatly inside an <code>overflow:hidden</code> window (a real DOM
+            element). Each frame, <code>gl.texElementImage2D()</code> uploads that window to a GPU
+            texture, and a vertex shader maps it onto a plane tilted back toward a vanishing point.
+            A fragment-shader fade dims the text as it recedes. Because the texture is only the
+            visible window, scripts of any length stay GPU-friendly.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const source    = document.getElementById('source');
+        const crawl     = document.querySelector('.crawl');
+        const crawlInner= document.getElementById('crawl-inner');
+        const scriptIn  = document.getElementById('script');
+        const host      = document.getElementById('canvas-host');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+
+        const speedIn = document.getElementById('speed'), speedVal = document.getElementById('speed-val');
+        const tiltIn  = document.getElementById('tilt'),  tiltVal  = document.getElementById('tilt-val');
+        const starsIn = document.getElementById('stars'), starsVal = document.getElementById('stars-val');
+        const restartBtn = document.getElementById('restart');
+        const urlInput   = document.getElementById('script-url');
+        const fetchBtn   = document.getElementById('fetch-url');
+        const fetchStatus= document.getElementById('fetch-status');
+
+        const gl = canvas.getContext('webgl2', { antialias: true, premultipliedAlpha: false, alpha: true });
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        if (!gl) { setDiag('bad', 'WebGL2 not available'); return; }
+        const supported = typeof gl.texElementImage2D === 'function';
+        setDiag(supported ? 'ok' : 'bad', supported ? 'WebGL2 + texElementImage2D ready' : 'texElementImage2D missing');
+
+        const state = {
+          rate: 80,            // px/sec
+          tilt: 50,            // degrees from horizontal
+          starCount: 260,
+          tStart: performance.now(),
+        };
+        speedIn.addEventListener('input', () => { state.rate = +speedIn.value; speedVal.textContent = `${state.rate} px/s`; });
+        tiltIn .addEventListener('input', () => { state.tilt = +tiltIn.value;  tiltVal.textContent  = `${state.tilt}°`; });
+        starsIn.addEventListener('input', () => { state.starCount = +starsIn.value; starsVal.textContent = state.starCount; buildStars(); });
+        restartBtn.addEventListener('click', () => { state.tStart = performance.now(); });
+
+        // ── Script parsing ───────────────────────────────────────────
+        function renderScript() {
+          crawlInner.textContent = '';
+          const frag = document.createDocumentFragment();
+          for (const line of scriptIn.value.split(/\r\n|\r|\n/)) {
+            const t = line.trim();
+            let node;
+            if (t === '') { node = document.createElement('div'); node.style.height = '0.5em'; }
+            else if (t.startsWith('## ')) { node = document.createElement('h2'); node.textContent = t.slice(3); }
+            else if (t.startsWith('# '))  { node = document.createElement('h1'); node.textContent = t.slice(2); }
+            else { node = document.createElement('p'); node.textContent = t; }
+            frag.append(node);
+          }
+          crawlInner.append(frag);
+        }
+        renderScript();
+        scriptIn.addEventListener('input', () => { renderScript(); state.tStart = performance.now(); });
+
+        // ── Fetch from URL ───────────────────────────────────────────
+        function setFetchStatus(s, msg) { fetchStatus.dataset.state = s; fetchStatus.textContent = msg; }
+        async function fetchScript() {
+          const raw = urlInput.value.trim();
+          if (!raw) return;
+          let url = raw;
+          const m = url.match(/^https?:\/\/gist\.github\.com\/([^/]+)\/([0-9a-f]+)(?:\b|\?)/i);
+          if (m) url = `https://gist.githubusercontent.com/${m[1]}/${m[2]}/raw/`;
+          setFetchStatus('', `Fetching…`);
+          try {
+            const res = await fetch(url, { redirect: 'follow' });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            const text = await res.text();
+            scriptIn.value = text;
+            scriptIn.scrollTop = 0;
+            renderScript();
+            state.tStart = performance.now();
+            const lines = text.split(/\r\n|\r|\n/).length;
+            setFetchStatus('ok', `Loaded ${text.length.toLocaleString()} chars · ${lines.toLocaleString()} lines`);
+          } catch (err) {
+            setFetchStatus('err', `Fetch failed: ${err.message}`);
+          }
+        }
+        fetchBtn.addEventListener('click', fetchScript);
+        urlInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); fetchScript(); } });
+
+        if (!supported) {
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const s = document.createElement('strong'); s.textContent = 'texElementImage2D() not detected.';
+          const c = document.createElement('code'); c.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(s, ' Enable ', c, ' to see the 3D crawl.');
+          // Show the text flat as a fallback.
+          source.style.position = 'relative';
+          source.style.width = '100%';
+          source.style.height = '420px';
+          crawl.style.height = '420px';
+          stat.textContent = 'fallback · flat scroll';
+          // Still scroll it in the DOM
+          const fb = () => {
+            const innerH = crawlInner.offsetHeight || 880, windowH = 420;
+            const dist = (((performance.now() - state.tStart) / 1000) * state.rate) % (innerH + windowH);
+            crawlInner.style.setProperty('--scroll', `${windowH - dist}px`);
+            requestAnimationFrame(fb);
+          };
+          fb();
+          return;
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        //  WebGL
+        // ─────────────────────────────────────────────────────────────
+        function compile(type, src) {
+          const sh = gl.createShader(type); gl.shaderSource(sh, src); gl.compileShader(sh);
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(sh)); return null; }
+          return sh;
+        }
+        function link(vs, fs) {
+          const p = gl.createProgram(); gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+          if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { console.error(gl.getProgramInfoLog(p)); return null; }
+          return p;
+        }
+
+        // Text plane shader — maps the texture onto a plane tilted back.
+        const textVs = compile(gl.VERTEX_SHADER, `#version 300 es
+          precision highp float;
+          in vec2 a_uv;
+          out vec2 v_uv;
+          out float v_far;
+          uniform mat4 u_proj, u_view;
+          uniform float u_tilt, u_planeW, u_planeH, u_baseY;
+          void main() {
+            float u = a_uv.x, v = a_uv.y;          // v: 0 near/bottom, 1 far/top
+            float x = (u - 0.5) * u_planeW;
+            float y = u_baseY + v * u_planeH * sin(u_tilt);
+            float z = -v * u_planeH * cos(u_tilt);
+            v_uv = vec2(u, 1.0 - v);               // flip so texture top → far
+            v_far = v;
+            gl_Position = u_proj * u_view * vec4(x, y, z, 1.0);
+          }`);
+        const textFs = compile(gl.FRAGMENT_SHADER, `#version 300 es
+          precision highp float;
+          in vec2 v_uv;
+          in float v_far;
+          out vec4 o;
+          uniform sampler2D u_tex;
+          void main() {
+            vec4 c = texture(u_tex, v_uv);
+            // Fade out toward the far end (top), and a touch at the very near edge.
+            float fade = smoothstep(1.0, 0.55, v_far) * smoothstep(0.0, 0.06, v_far);
+            o = vec4(c.rgb, c.a * fade);
+          }`);
+        const textProgram = link(textVs, textFs);
+
+        // Starfield shader — points at fixed clip positions.
+        const starVs = compile(gl.VERTEX_SHADER, `#version 300 es
+          precision highp float;
+          in vec2 a_pos; in float a_size; in float a_tw;
+          out float v_tw;
+          uniform float u_time;
+          void main() {
+            v_tw = 0.5 + 0.5 * sin(u_time * 2.0 + a_tw * 6.28);
+            gl_Position = vec4(a_pos, 0.999, 1.0);
+            gl_PointSize = a_size;
+          }`);
+        const starFs = compile(gl.FRAGMENT_SHADER, `#version 300 es
+          precision highp float;
+          in float v_tw; out vec4 o;
+          void main() {
+            vec2 d = gl_PointCoord - 0.5;
+            float a = smoothstep(0.5, 0.0, length(d)) * (0.4 + 0.6 * v_tw);
+            o = vec4(1.0, 1.0, 1.0, a);
+          }`);
+        const starProgram = link(starVs, starFs);
+
+        // Text quad mesh (subdivided for smooth perspective interpolation)
+        const COLS = 1, ROWS = 40;
+        const quadVerts = [], quadIdx = [];
+        for (let r = 0; r <= ROWS; r++)
+          for (let c = 0; c <= COLS; c++) quadVerts.push(c / COLS, r / ROWS);
+        for (let r = 0; r < ROWS; r++)
+          for (let c = 0; c < COLS; c++) {
+            const i = r * (COLS + 1) + c;
+            quadIdx.push(i, i + 1, i + COLS + 1, i + 1, i + COLS + 2, i + COLS + 1);
+          }
+        const quadVao = gl.createVertexArray();
+        gl.bindVertexArray(quadVao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(quadVerts), gl.STATIC_DRAW);
+        const aUv = gl.getAttribLocation(textProgram, 'a_uv');
+        gl.enableVertexAttribArray(aUv);
+        gl.vertexAttribPointer(aUv, 2, gl.FLOAT, false, 0, 0);
+        const quadEbo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, quadEbo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(quadIdx), gl.STATIC_DRAW);
+        gl.bindVertexArray(null);
+
+        // Stars mesh
+        let starVao, starCountActual = 0;
+        function buildStars() {
+          const data = [];
+          for (let i = 0; i < state.starCount; i++) {
+            data.push((Math.random() * 2 - 1), (Math.random() * 2 - 1),  // clip xy
+              1 + Math.random() * 2.2,                                    // size
+              Math.random());                                            // twinkle phase
+          }
+          starCountActual = state.starCount;
+          if (!starVao) starVao = gl.createVertexArray();
+          gl.bindVertexArray(starVao);
+          const vbo = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+          const aPos = gl.getAttribLocation(starProgram, 'a_pos');
+          const aSize = gl.getAttribLocation(starProgram, 'a_size');
+          const aTw = gl.getAttribLocation(starProgram, 'a_tw');
+          gl.enableVertexAttribArray(aPos);  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 16, 0);
+          gl.enableVertexAttribArray(aSize); gl.vertexAttribPointer(aSize, 1, gl.FLOAT, false, 16, 8);
+          gl.enableVertexAttribArray(aTw);   gl.vertexAttribPointer(aTw, 1, gl.FLOAT, false, 16, 12);
+          gl.bindVertexArray(null);
+        }
+        buildStars();
+
+        // Texture
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,0]));
+        gl.generateMipmap(gl.TEXTURE_2D);
+
+        function uploadTexture() {
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          try {
+            gl.texElementImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+            gl.generateMipmap(gl.TEXTURE_2D);
+          } catch (e) { /* keep last */ }
+        }
+        canvas.onpaint = uploadTexture;
+        let nudgeFlag = false;
+        function nudge() { nudgeFlag = !nudgeFlag; source.style.opacity = nudgeFlag ? '1' : '0.999999'; }
+
+        // Matrix helpers
+        function perspective(fovy, aspect, near, far) {
+          const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+          return new Float32Array([f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0]);
+        }
+        function lookAt(ex,ey,ez, cx,cy,cz, ux,uy,uz) {
+          let fx=cx-ex, fy=cy-ey, fz=cz-ez; const fl=Math.hypot(fx,fy,fz); fx/=fl; fy/=fl; fz/=fl;
+          let sx=fy*uz-fz*uy, sy=fz*ux-fx*uz, sz=fx*uy-fy*ux; const sl=Math.hypot(sx,sy,sz); sx/=sl; sy/=sl; sz/=sl;
+          const tx=sy*fz-sz*fy, ty=sz*fx-sx*fz, tz=sx*fy-sy*fx;
+          return new Float32Array([sx,tx,-fx,0, sy,ty,-fy,0, sz,tz,-fz,0,
+            -(sx*ex+sy*ey+sz*ez), -(tx*ex+ty*ey+tz*ez), (fx*ex+fy*ey+fz*ez), 1]);
+        }
+
+        // Sizing
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          const w = Math.max(420, Math.floor(r.width));
+          const h = Math.max(560, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w * dpr; canvas.height = h * dpr;
+          gl.viewport(0, 0, canvas.width, canvas.height);
+          // Size the crawl source + window explicitly (layoutsubtree needs it)
+          source.style.width = `${w}px`;
+          source.style.height = `${h}px`;
+          crawl.style.width = `${Math.min(760, Math.floor(w * 0.78))}px`;
+          crawl.style.height = `${h}px`;
+        }
+        new ResizeObserver(resize).observe(host);
+        resize();
+        nudge();
+
+        // Render loop
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+        function frame(now) {
+          // Scroll the flat text (rate-based, length-independent)
+          const windowH = crawl.clientHeight || 880;
+          const innerH  = crawlInner.offsetHeight || 880;
+          const totalDist = innerH + windowH;
+          const dist = (((now - state.tStart) / 1000) * state.rate) % totalDist;
+          crawlInner.style.setProperty('--scroll', `${(windowH - dist).toFixed(1)}px`);
+          nudge(); // fire onpaint → uploadTexture
+
+          gl.clearColor(0, 0, 0, 1);
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+          gl.enable(gl.BLEND);
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+          gl.disable(gl.DEPTH_TEST);
+
+          // Stars
+          gl.useProgram(starProgram);
+          gl.bindVertexArray(starVao);
+          gl.uniform1f(gl.getUniformLocation(starProgram, 'u_time'), now / 1000);
+          gl.drawArrays(gl.POINTS, 0, starCountActual);
+
+          // Text plane
+          const aspect = canvas.width / canvas.height;
+          const proj = perspective(Math.PI / 4, aspect, 0.1, 100);
+          const view = lookAt(0, 0.3, 3.2,  0, 1.4, -1.5,  0, 1, 0);
+          gl.useProgram(textProgram);
+          gl.bindVertexArray(quadVao);
+          gl.uniformMatrix4fv(gl.getUniformLocation(textProgram, 'u_proj'), false, proj);
+          gl.uniformMatrix4fv(gl.getUniformLocation(textProgram, 'u_view'), false, view);
+          gl.uniform1f(gl.getUniformLocation(textProgram, 'u_tilt'), state.tilt * Math.PI / 180);
+          gl.uniform1f(gl.getUniformLocation(textProgram, 'u_planeW'), 5.0);
+          gl.uniform1f(gl.getUniformLocation(textProgram, 'u_planeH'), 9.0);
+          gl.uniform1f(gl.getUniformLocation(textProgram, 'u_baseY'), -1.4);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.uniform1i(gl.getUniformLocation(textProgram, 'u_tex'), 0);
+          gl.drawElements(gl.TRIANGLES, quadIdx.length, gl.UNSIGNED_SHORT, 0);
+          gl.bindVertexArray(null);
+
+          paints++;
+          if (now - fpsT > 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · ${state.rate} px/s · tilt ${state.tilt}° · content ${innerH}px`;
+            fpsT = now; fpsAt = paints;
+          }
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      })();
+    </script>
+  </body>
+</html>

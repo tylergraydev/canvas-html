@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>10 · Game HUD — HTML in Canvas</title>
+    <meta name="description" content="A canvas game loop with a reactive HTML HUD composited on top." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 620px; }
+      canvas.scene { min-height: 620px; }
+
+      .hud-top {
+        display: flex; gap: 14px; align-items: center;
+        padding: 10px 14px;
+        background: rgba(8,10,16,.78);
+        border: 1px solid rgba(124,92,255,.35);
+        border-radius: 12px;
+        backdrop-filter: blur(8px);
+        color: var(--text);
+        font-size: 12.5px;
+        transform-origin: 0 0;
+      }
+      .hud-top__cell {
+        display: flex; flex-direction: column; gap: 2px;
+        padding: 0 10px;
+        border-right: 1px solid rgba(255,255,255,.08);
+      }
+      .hud-top__cell:last-child { border-right: 0; }
+      .hud-top__cell label { color: var(--text-mute); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+      .hud-top__cell b {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 16px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .hud-top__cell.score b { color: #fbbf24; }
+      .hud-top__cell.combo b { color: #67e8f9; }
+
+      .health {
+        width: 220px;
+        padding: 10px 14px;
+        background: rgba(8,10,16,.78);
+        border: 1px solid rgba(248,113,113,.4);
+        border-radius: 12px;
+        color: var(--text);
+        backdrop-filter: blur(8px);
+        font-size: 12px;
+        transform-origin: 0 0;
+      }
+      .health__row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+      .health__row span { color: var(--text-mute); letter-spacing: .12em; text-transform: uppercase; font-size: 10.5px; }
+      .health__row b { font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
+      .health__bar { height: 8px; background: rgba(255,255,255,.06); border-radius: 999px; overflow: hidden; }
+      .health__fill {
+        height: 100%;
+        background: linear-gradient(90deg, #f87171, #fbbf24 70%, #34d399);
+        border-radius: inherit;
+        width: 80%;
+        transition: width .25s ease;
+      }
+      .health[data-animate="true"] .health__fill {
+        animation: hpPulse 1.6s ease-in-out infinite;
+      }
+      @keyframes hpPulse {
+        50% { box-shadow: 0 0 0 1px rgba(248,113,113,.45); }
+      }
+
+      .weapons {
+        display: flex; gap: 6px;
+        padding: 8px;
+        background: rgba(8,10,16,.78);
+        border: 1px solid rgba(34,211,238,.4);
+        border-radius: 12px;
+        backdrop-filter: blur(8px);
+        transform-origin: 0 0;
+      }
+      .weapon {
+        width: 56px;
+        padding: 8px 6px;
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text-dim);
+        font: inherit; font-size: 12px;
+        cursor: pointer;
+        display: flex; flex-direction: column; align-items: center; gap: 4px;
+        transition: border-color .12s ease, color .12s ease, background .12s ease;
+      }
+      .weapon[aria-pressed="true"] {
+        background: rgba(34,211,238,.18);
+        color: #67e8f9;
+        border-color: rgba(34,211,238,.6);
+      }
+      .weapon b {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 18px;
+        font-weight: 700;
+      }
+      .weapon span { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+
+      .pause {
+        padding: 10px 14px;
+        background: rgba(8,10,16,.78);
+        border: 1px solid rgba(124,92,255,.4);
+        border-radius: 12px;
+        color: var(--text);
+        font: inherit; font-size: 13px;
+        cursor: pointer;
+        backdrop-filter: blur(8px);
+        display: flex; align-items: center; gap: 8px;
+        transform-origin: 0 0;
+      }
+      .pause svg { width: 12px; height: 12px; }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 10 · Interactive</p>
+            <h1 class="example__title">Game HUD</h1>
+            <p class="example__intro">
+              A canvas game loop (ships, projectiles, particles) with a real HTML HUD composited on
+              top. Each HUD piece is a separate <code>drawElementImage()</code> call. Click weapons
+              to swap, hit pause, watch the bar pulse.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · game render + drawElementImage(HUD parts)</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+            <canvas class="scene" id="scene" layoutsubtree>
+              <div class="hud-top" id="hud-top-source">
+                <div class="hud-top__cell">
+                  <label>Wave</label><b id="wave">07</b>
+                </div>
+                <div class="hud-top__cell score">
+                  <label>Score</label><b id="score">28,140</b>
+                </div>
+                <div class="hud-top__cell combo">
+                  <label>Combo</label><b id="combo">×3</b>
+                </div>
+                <div class="hud-top__cell">
+                  <label>Time</label><b id="time">01:42</b>
+                </div>
+              </div>
+              <div class="health" id="hp-source" data-animate="true">
+                <div class="health__row"><span>Hull integrity</span><b id="hp-val">80%</b></div>
+                <div class="health__bar"><div class="health__fill" id="hp-fill"></div></div>
+              </div>
+              <div class="weapons" id="weapons-source">
+                <button class="weapon" data-w="0" aria-pressed="true">
+                  <b>1</b><span>Pulse</span>
+                </button>
+                <button class="weapon" data-w="1" aria-pressed="false">
+                  <b>2</b><span>Laser</span>
+                </button>
+                <button class="weapon" data-w="2" aria-pressed="false">
+                  <b>3</b><span>Plasma</span>
+                </button>
+                <button class="weapon" data-w="3" aria-pressed="false">
+                  <b>4</b><span>Nuke</span>
+                </button>
+              </div>
+              <button class="pause" id="pause-source" type="button">
+                <svg viewBox="0 0 12 12" id="pause-icon"><path fill="currentColor" d="M3 2h2v8H3zM7 2h2v8H7z"/></svg>
+                <span id="pause-text">Pause</span>
+              </button>
+            </canvas>
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <label class="slider"><span>Enemies</span><input type="range" id="count" min="2" max="40" value="14" /><span class="slider__val" id="count-val">14</span></label>
+            <button class="seg" id="damage" style="border:1px solid var(--border); padding:7px 12px; border-radius:8px;">Take damage</button>
+            <button class="seg" id="heal"   style="border:1px solid var(--border); padding:7px 12px; border-radius:8px;">Heal</button>
+            <span class="stat" id="stat">—</span>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>Why composite HUD this way</h3>
+          <p>
+            Normal HTML HUDs sit in a sibling layer above the game canvas — fine, but the canvas
+            can't see them, so they can't be part of effects (blur, fade, post-processing,
+            screenshots). Painting them <em>into</em> the canvas via <code>drawElementImage()</code>
+            keeps them on the same surface — and they're still real DOM, so the buttons still
+            click.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas    = document.getElementById('scene');
+        const ctx       = canvas.getContext('2d');
+        const host      = document.getElementById('canvas-host');
+        const fbHost    = document.getElementById('fallback-host');
+        const stat      = document.getElementById('stat');
+        const notice    = document.getElementById('trial-notice');
+        const diag      = document.getElementById('diag');
+        const diagText  = document.getElementById('diag-text');
+
+        const hudTop    = document.getElementById('hud-top-source');
+        const hpSource  = document.getElementById('hp-source');
+        const weapons   = document.getElementById('weapons-source');
+        const pauseBtn  = document.getElementById('pause-source');
+        const pauseIcon = document.getElementById('pause-icon');
+        const pauseText = document.getElementById('pause-text');
+
+        const scoreEl = document.getElementById('score');
+        const comboEl = document.getElementById('combo');
+        const timeEl  = document.getElementById('time');
+        const hpVal   = document.getElementById('hp-val');
+        const hpFill  = document.getElementById('hp-fill');
+
+        const countIn = document.getElementById('count'), countVal = document.getElementById('count-val');
+        const damageBtn = document.getElementById('damage');
+        const healBtn = document.getElementById('heal');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        const state = {
+          paused: false,
+          weapon: 0,
+          enemies: 14,
+          hp: 80,
+          score: 28140,
+          combo: 3,
+          tStart: performance.now(),
+        };
+
+        weapons.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('.weapon');
+          if (!btn) return;
+          state.weapon = +btn.dataset.w;
+          for (const w of weapons.querySelectorAll('.weapon')) {
+            w.setAttribute('aria-pressed', +w.dataset.w === state.weapon ? 'true' : 'false');
+          }
+        });
+        pauseBtn.addEventListener('click', () => {
+          state.paused = !state.paused;
+          pauseIcon.firstElementChild.setAttribute('d', state.paused ? 'M3 2v8l7-4z' : 'M3 2h2v8H3zM7 2h2v8H7z');
+          pauseText.textContent = state.paused ? 'Resume' : 'Pause';
+        });
+        countIn.addEventListener('input', () => { state.enemies = +countIn.value; countVal.textContent = state.enemies; ensureEnemies(); });
+        damageBtn.addEventListener('click', () => { state.hp = Math.max(0,  state.hp - 12); updateHp(); });
+        healBtn  .addEventListener('click', () => { state.hp = Math.min(100, state.hp + 12); updateHp(); });
+        function updateHp() {
+          hpFill.style.width = `${state.hp}%`;
+          hpVal.textContent = `${state.hp}%`;
+        }
+        updateHp();
+
+        // World objects
+        const ship = { x: 0, y: 0, angle: 0 };
+        const enemies = [];
+        const bullets = [];
+        function ensureEnemies() {
+          const w = canvas.width || host.clientWidth;
+          const h = canvas.height || host.clientHeight;
+          while (enemies.length < state.enemies) {
+            enemies.push({
+              x: Math.random() * w, y: Math.random() * h,
+              vx: (Math.random() - 0.5) * 2,
+              vy: (Math.random() - 0.5) * 2,
+              size: 6 + Math.random() * 14,
+              hue: Math.random() * 360,
+            });
+          }
+          if (enemies.length > state.enemies) enemies.length = state.enemies;
+        }
+
+        function nudge() { hudTop.style.opacity = hudTop.style.opacity === '1' ? '0.999999' : '1'; }
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(420, Math.floor(r.width));
+          const h = Math.max(560, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          ship.x = w / 2; ship.y = h / 2;
+          ensureEnemies();
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host); resize();
+
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          const t = performance.now() / 1000;
+          ctx.reset();
+
+          // Star backdrop
+          ctx.fillStyle = '#02030a';
+          ctx.fillRect(0, 0, w, h);
+          for (let i = 0; i < 80; i++) {
+            const sx = ((i * 71 + t * 12) % w);
+            const sy = ((i * 137) % h);
+            ctx.fillStyle = `rgba(255,255,255,${0.15 + (i % 5) * 0.12})`;
+            ctx.fillRect(sx, sy, 1.5, 1.5);
+          }
+
+          // Ship orbits the center
+          ship.angle = state.paused ? ship.angle : t * 0.6;
+          ship.x = w / 2 + Math.cos(ship.angle) * 90;
+          ship.y = h / 2 + Math.sin(ship.angle) * 90;
+
+          // Update enemies
+          if (!state.paused) {
+            for (const e of enemies) {
+              e.x += e.vx; e.y += e.vy;
+              if (e.x < 0 || e.x > w) e.vx *= -1;
+              if (e.y < 0 || e.y > h) e.vy *= -1;
+            }
+          }
+
+          // Draw enemies
+          for (const e of enemies) {
+            ctx.beginPath();
+            ctx.fillStyle = `hsla(${e.hue}, 70%, 60%, 0.85)`;
+            ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = `hsla(${e.hue}, 80%, 70%, 0.5)`;
+            ctx.beginPath();
+            ctx.arc(e.x, e.y, e.size + 4 + Math.sin(t * 3 + e.x) * 2, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          // Draw player ship
+          ctx.save();
+          ctx.translate(ship.x, ship.y);
+          ctx.rotate(ship.angle + Math.PI / 2);
+          ctx.fillStyle = '#67e8f9';
+          ctx.beginPath();
+          ctx.moveTo(0, -14);
+          ctx.lineTo(10, 10);
+          ctx.lineTo(-10, 10);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = 'rgba(124,92,255,.8)';
+          ctx.fillRect(-3, 10, 6, 6);
+          ctx.restore();
+
+          // Score ticking up
+          if (!state.paused && paints % 6 === 0) {
+            state.score += Math.floor(Math.random() * 15);
+            scoreEl.textContent = state.score.toLocaleString();
+          }
+          // Combo bounce
+          if (!state.paused && paints % 240 === 0) {
+            state.combo = Math.max(1, Math.min(9, state.combo + (Math.random() > 0.5 ? 1 : -1)));
+            comboEl.textContent = `×${state.combo}`;
+          }
+          // Timer
+          const elapsed = (performance.now() - state.tStart) / 1000;
+          const m = Math.floor(elapsed / 60);
+          const s = Math.floor(elapsed % 60);
+          timeEl.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+          // HUD overlays
+          try {
+            const margin = 16;
+            // Top HUD — top-left
+            const topW = hudTop.offsetWidth || 320;
+            ctx.drawElementImage(hudTop, margin, margin);
+
+            // Health — top-right
+            const hpW = hpSource.offsetWidth || 220;
+            ctx.drawElementImage(hpSource, w - hpW - margin, margin);
+
+            // Weapons — bottom-center; interactive copy
+            const wpnW = weapons.offsetWidth  || 252;
+            const wpnH = weapons.offsetHeight || 72;
+            const wpnX = Math.round((w - wpnW) / 2);
+            const wpnY = h - wpnH - margin;
+            const wpnT = ctx.drawElementImage(weapons, wpnX, wpnY);
+            weapons.style.transform = wpnT.toString();
+
+            // Pause — bottom-right
+            const pW = pauseBtn.offsetWidth  || 110;
+            const pH = pauseBtn.offsetHeight || 40;
+            const pT = ctx.drawElementImage(pauseBtn, w - pW - margin, h - pH - margin);
+            pauseBtn.style.transform = pT.toString();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            return;
+          }
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · ${enemies.length} enemies · HUD ×4`;
+            fpsT = now; fpsAt = paints;
+          }
+        }
+
+        if (supported) { canvas.onpaint = paint; nudge(); }
+        else mountFallback();
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          fbHost.style.flexDirection = 'column';
+          fbHost.style.gap = '12px';
+          fbHost.append(hudTop, hpSource, weapons, pauseBtn);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const s = document.createElement('strong'); s.textContent = 'drawElementImage() not detected.';
+          const c = document.createElement('code'); c.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(s, ' Enable ', c, ' to see the HUD composited on the game.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>
