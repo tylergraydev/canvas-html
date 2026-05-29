@@ -245,6 +245,27 @@
         window.addEventListener('error', (e) => showError(e.message || String(e.error), 'window'));
         setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
 
+        // Offscreen texture of the form. drawElementImage() rasterizes the live
+        // DOM, which is far too costly to call per-triangle every frame, so we
+        // capture the form ONCE into this canvas whenever it changes, then warp
+        // the cheap bitmap onto the sphere with drawImage().
+        const tex = document.createElement('canvas');
+        const texCtx = tex.getContext('2d');
+        let texDirty = true;
+        let rafPending = false;
+        function markDirty() { texDirty = true; requestFrame(); }
+        function captureForm() {
+          const fw = source.offsetWidth || 272, fh = source.offsetHeight || 409;
+          if (tex.width !== fw || tex.height !== fh) { tex.width = fw; tex.height = fh; }
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.clearRect(0, 0, fw, fh);
+          ctx.drawElementImage(source, 0, 0);   // the only drawElementImage, and only on change
+          ctx.restore();
+          texCtx.clearRect(0, 0, fw, fh);
+          texCtx.drawImage(canvas, 0, 0, fw, fh, 0, 0, fw, fh);
+        }
+
         // ── Sign-in behaviour (no real auth — it's a demo) ────────────
         card.addEventListener('submit', (ev) => {
           ev.preventDefault();
@@ -255,7 +276,11 @@
             msg.dataset.tone = 'bad';
             msg.textContent = 'Enter an email and password to continue.';
           }
+          markDirty();
         });
+        // Re-capture the form bitmap whenever its painted appearance can change.
+        ['input', 'change', 'focusin', 'focusout', 'pointerover', 'pointerout', 'pointerdown', 'pointerup']
+          .forEach((ev) => card.addEventListener(ev, markDirty));
 
         // ── State ─────────────────────────────────────────────────────
         const state = {
@@ -269,25 +294,23 @@
         }
         spinOn.addEventListener('click', () => {
           state.autoSpin = true; setPressed([spinOn, spinOff], spinOn);
-          startDriver();
+          requestFrame();
         });
         spinOff.addEventListener('click', () => {
           state.autoSpin = false; setPressed([spinOn, spinOff], spinOff);
-          stopDriver();
           // Snap the decal to face the viewer so it can be used to sign in.
           state.spin = Math.round(state.spin / (Math.PI * 2)) * Math.PI * 2;
-          nudge();
-          stat.textContent = 'rest · facing front';
+          requestFrame();
         });
         speedIn.addEventListener('input', () => {
           state.speed = (+speedIn.value / 100) * 1.2;
           speedVal.textContent = state.speed.toFixed(2);
-          nudge();
+          requestFrame();
         });
         tiltIn.addEventListener('input', () => {
           state.tiltRad = (+tiltIn.value) * Math.PI / 180;
           tiltVal.textContent = `${tiltIn.value}°`;
-          nudge();
+          requestFrame();
         });
 
         // ── Globe wireframe geometry (unit sphere, sampled once) ──────
@@ -391,7 +414,7 @@
           ctx.moveTo(c0[0], c0[1]); ctx.lineTo(c1[0], c1[1]); ctx.lineTo(c2[0], c2[1]); ctx.closePath();
           ctx.clip();
           ctx.setTransform(a, b, c, d, e, f);
-          ctx.drawElementImage(source, 0, 0);
+          ctx.drawImage(tex, 0, 0);   // cheap GPU bitmap blit, not a DOM rasterization
           ctx.restore();
         }
 
@@ -399,8 +422,8 @@
         // meridian. Also sets the live DOM hit-box.
         const COLS = 36;
         function drawDecal(cx, cy, R) {
-          const fw = source.offsetWidth  || 272;
-          const fh = source.offsetHeight || 380;
+          const fw = tex.width  || source.offsetWidth  || 272;
+          const fh = tex.height || source.offsetHeight || 409;
           const TH = fw / R;                       // longitude span of the patch
           const PH = Math.min(fh / R, 1.5);        // latitude span of the patch
           const project = makeProjector(cx, cy, R);
@@ -418,21 +441,16 @@
             drawTexTri([sx1, 0], [sx1, fh], [sx0, fh], TR, BR, BL);
           }
 
-          // Hit-test geometry: a transparent flat draw at the patch centre.
+          // Hit-test geometry. drawElementImage(el, x, y) returns CTM ∘ translate(x, y);
+          // for our pure translate+scale that is exactly the matrix below, so we
+          // set it directly and skip a per-frame DOM rasterization.
           const C = project(0, 0);
           if (C[2] > 0.22) {
             const lm = project(0, -TH / 2), rm = project(0, TH / 2);
             const tm = project(PH / 2, 0), bm = project(-PH / 2, 0);
             const hS = Math.hypot(rm[0] - lm[0], rm[1] - lm[1]) / fw || 0.001;
             const vS = Math.hypot(bm[0] - tm[0], bm[1] - tm[1]) / fh || 0.001;
-            ctx.save();
-            ctx.globalAlpha = 0;
-            ctx.translate(C[0], C[1]);
-            ctx.scale(hS, vS);
-            let tf;
-            try { tf = ctx.drawElementImage(source, -fw / 2, -fh / 2); } catch (err) { showError(err.message, 'drawElementImage'); }
-            ctx.restore();
-            if (tf) source.style.transform = tf.toString();
+            source.style.transform = `matrix(${hS}, 0, 0, ${vS}, ${C[0] - hS * fw / 2}, ${C[1] - vS * fh / 2})`;
             source.style.pointerEvents = 'auto';
           } else {
             source.style.transform = 'translate(-99999px,-99999px)';
@@ -484,14 +502,13 @@
           const w = canvas.width, h = canvas.height;
           return { w, h, cx: w / 2, cy: h * 0.47, R: Math.min(252, (Math.min(w, h) - 130) / 2) };
         }
-        function nudge() { source.style.opacity = source.style.opacity === '1' ? '0.999999' : '1'; }
         function resize() {
           const r = host.getBoundingClientRect();
           const w = Math.max(360, Math.floor(r.width));
           const h = Math.max(620, Math.floor(r.height));
           canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
           canvas.width = w; canvas.height = h;
-          if (supported) nudge();
+          if (supported) markDirty();   // re-capture (size may have changed) + schedule a frame
         }
         new ResizeObserver(resize).observe(host);
         resize();
@@ -507,11 +524,18 @@
           ctx.fillStyle = bg;
           ctx.fillRect(0, 0, w, h);
 
+          // Soft contact shadow as a squashed radial gradient — no canvas
+          // filter (a per-frame blur forces an expensive off-GPU path).
           ctx.save();
-          ctx.fillStyle = 'rgba(0,0,0,.55)';
-          ctx.filter = 'blur(26px)';
+          ctx.translate(cx, cy + R + 14);
+          ctx.scale(1, 0.22);
+          const sg = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 0.92);
+          sg.addColorStop(0,   'rgba(0,0,0,.55)');
+          sg.addColorStop(0.7, 'rgba(0,0,0,.22)');
+          sg.addColorStop(1,   'rgba(0,0,0,0)');
+          ctx.fillStyle = sg;
           ctx.beginPath();
-          ctx.ellipse(cx, cy + R + 30, R * 0.82, R * 0.16, 0, 0, Math.PI * 2);
+          ctx.arc(0, 0, R * 0.92, 0, Math.PI * 2);
           ctx.fill();
           ctx.restore();
         }
@@ -524,6 +548,7 @@
           if (state.autoSpin) state.spin += dt * state.speed;
 
           ctx.reset();
+          if (withForm && texDirty) { captureForm(); texDirty = false; }
           backdrop(w, h, cx, cy, R);
           drawBody(cx, cy, R);
           drawWire(cx, cy, R);
@@ -535,31 +560,32 @@
           drawGlass(cx, cy, R);
 
           paints++;
-          if (now - fpsT >= 500) {
-            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
-            const deg = ((state.spin * 180 / Math.PI) % 360 + 360) % 360;
-            stat.textContent = `${fps.toFixed(0)} fps · spin ${deg.toFixed(0)}°`;
+          if (state.autoSpin) {
+            if (now - fpsT >= 500) {
+              const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+              const deg = ((state.spin * 180 / Math.PI) % 360 + 360) % 360;
+              stat.textContent = `${fps.toFixed(0)} fps · spin ${deg.toFixed(0)}°`;
+              fpsT = now; fpsAt = paints;
+            }
+          } else {
+            stat.textContent = 'rest · facing front';
             fpsT = now; fpsAt = paints;
           }
         }
 
-        // Continuous paint driver: flipping the source's opacity every frame
-        // reliably re-fires onpaint at compositor cadence (mirrors example 11),
-        // and keeps spinning even while the decal is rotated out of view.
-        let driverOn = false, drvFlag = false;
-        function driverStep() {
-          if (!driverOn) return;
-          drvFlag = !drvFlag;
-          source.style.opacity = drvFlag ? '1' : '0.999999';
-          requestAnimationFrame(driverStep);
+        // Frame scheduler: a continuous requestAnimationFrame loop while
+        // auto-spinning, or a single on-demand frame (input, control change,
+        // resize) while at rest. No per-frame DOM work — the form is only
+        // re-rasterized when texDirty is set.
+        function tick() {
+          rafPending = false;
+          render(true);
+          if (state.autoSpin) requestFrame();
         }
-        function startDriver() { if (!driverOn) { driverOn = true; requestAnimationFrame(driverStep); } }
-        function stopDriver()  { driverOn = false; }
+        function requestFrame() { if (!rafPending && supported) { rafPending = true; requestAnimationFrame(tick); } }
 
         if (supported) {
-          canvas.onpaint = () => render(true);
-          startDriver();
-          nudge();
+          requestFrame();
         } else {
           mountFallback();
           const loop = () => { render(false); requestAnimationFrame(loop); };
