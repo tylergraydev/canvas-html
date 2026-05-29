@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>16 · 3D login orb (WebGL) — HTML in Canvas</title>
+    <meta name="description" content="A live sign-in form uploaded as a GPU texture via texElementImage2D and mapped onto a real 3D WebGL sphere." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 640px; display: grid; }
+      canvas.scene { min-height: 640px; background: transparent; }
+
+      /* A soft contact shadow that shows through the transparent WebGL canvas. */
+      .orb-shadow {
+        position: absolute;
+        left: 50%; top: 78%;
+        width: 60%; height: 70px;
+        transform: translate(-50%, -50%);
+        background: radial-gradient(closest-side, rgba(0,0,0,.55), rgba(0,0,0,0) 75%);
+        z-index: 0;
+        pointer-events: none;
+      }
+      canvas.scene { position: relative; z-index: 1; }
+
+      /* The live form. It is a layoutsubtree child of the canvas, so it is never
+         drawn to the page directly — we upload it to the GPU as a texture. We
+         still pin its hit-box with a transform so it stays typeable up front. */
+      .orb-form-wrap { width: 272px; transform-origin: 0 0; }
+      .orb-form {
+        position: relative;
+        display: flex; flex-direction: column; gap: 14px;
+        padding: 26px 24px 22px;
+        border-radius: 22px;
+        background:
+          radial-gradient(140% 100% at 50% 0%, rgba(124,92,255,.18), transparent 60%),
+          rgba(9,12,20,.66);
+        border: 1px solid rgba(160,180,255,.24);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 0 40px rgba(40,60,110,.25);
+        color: var(--text);
+      }
+      .orb-form__glow {
+        position: absolute; left: 14px; right: 14px; top: 8px; height: 46px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(255,255,255,.18), transparent);
+        filter: blur(6px); pointer-events: none;
+      }
+      .orb-form__head { text-align: center; margin-bottom: 2px; }
+      .orb-form__badge {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10px; letter-spacing: .22em;
+        padding: 3px 10px; border-radius: 999px;
+        background: rgba(34,211,238,.12); color: #7ce8f9;
+        border: 1px solid rgba(34,211,238,.35);
+      }
+      .orb-form__title { margin: 12px 0 2px; font-size: 22px; font-weight: 650; letter-spacing: -.02em; }
+      .orb-form__sub { margin: 0; font-size: 12.5px; color: var(--text-mute); }
+      .orb-field { display: flex; flex-direction: column; gap: 6px; }
+      .orb-field > span { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-mute); }
+      .orb-field input {
+        background: rgba(4,7,14,.78);
+        border: 1px solid rgba(150,170,230,.28);
+        color: var(--text); padding: 10px 12px; border-radius: 11px;
+        font: inherit; font-size: 14px; outline: none;
+        transition: border-color .14s ease, box-shadow .14s ease, background .14s ease;
+      }
+      .orb-field input::placeholder { color: rgba(160,170,200,.45); }
+      .orb-field input:focus { border-color: var(--accent); background: rgba(8,12,24,.9); box-shadow: 0 0 0 3px rgba(124,92,255,.28); }
+      .orb-check { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--text-dim); cursor: pointer; user-select: none; }
+      .orb-check input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+      .orb-submit {
+        margin-top: 2px; padding: 12px 14px;
+        border: 0; border-radius: 12px;
+        font: inherit; font-size: 14px; font-weight: 600; color: #f4f1ff;
+        background: linear-gradient(180deg, #8a6bff, #6b4dff); cursor: pointer;
+        box-shadow: 0 8px 22px -8px rgba(124,92,255,.7), inset 0 1px 0 rgba(255,255,255,.25);
+      }
+      .orb-submit:hover { filter: brightness(1.06); }
+      .orb-submit:active { transform: translateY(1px); }
+      .orb-msg { margin: 2px 0 0; min-height: 1.3em; font-size: 12.5px; text-align: center; color: var(--text-mute); }
+      .orb-msg[data-tone="ok"]  { color: #7ee2b8; }
+      .orb-msg[data-tone="bad"] { color: #fca5a5; }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 16 · Interactive</p>
+            <h1 class="example__title">3D login orb (WebGL)</h1>
+            <p class="example__intro">
+              The same idea as <a href="15-login-orb.html">example 15</a>, but rendered in a
+              <strong>real 3D pipeline</strong>. HTML-in-Canvas isn't limited to 2D — WebGL exposes
+              <code>texElementImage2D()</code>, which uploads the live, interactive sign-in form
+              straight to the GPU as a texture. It's mapped onto an actual sphere mesh with
+              perspective, depth, and shader lighting — smooth at the limb, no triangle seams. Hit
+              <strong>Rest</strong> to bring it front and type on the ball.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">WebGL2 · texElementImage2D → texture on a 3D sphere</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+            <div class="orb-shadow" aria-hidden="true"></div>
+
+            <canvas class="scene" id="scene" layoutsubtree>
+              <div class="orb-form-wrap" id="source">
+                <form class="orb-form" id="card">
+                  <div class="orb-form__glow" aria-hidden="true"></div>
+                  <header class="orb-form__head">
+                    <span class="orb-form__badge">SECURE · GPU</span>
+                    <h2 class="orb-form__title">Sign in</h2>
+                    <p class="orb-form__sub">to the orb</p>
+                  </header>
+                  <label class="orb-field">
+                    <span>Email</span>
+                    <input id="email" type="email" placeholder="you@orb.dev" autocomplete="username" />
+                  </label>
+                  <label class="orb-field">
+                    <span>Password</span>
+                    <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+                  </label>
+                  <label class="orb-check">
+                    <input id="remember" type="checkbox" />
+                    <span>Keep me in orbit</span>
+                  </label>
+                  <button class="orb-submit" id="submit" type="submit">Enter the orb</button>
+                  <p class="orb-msg" id="msg" role="status"></p>
+                </form>
+              </div>
+            </canvas>
+
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <div class="controls__group" role="group" aria-label="Spin">
+              <button class="seg" id="spin-on"  aria-pressed="true">Auto-spin</button>
+              <button class="seg" id="spin-off" aria-pressed="false">Rest</button>
+            </div>
+            <label class="slider">
+              <span>Speed</span>
+              <input type="range" id="speed" min="0" max="100" value="42" />
+              <span class="slider__val" id="speed-val">0.50</span>
+            </label>
+            <label class="slider">
+              <span>Axis tilt</span>
+              <input type="range" id="tilt" min="-45" max="45" value="-20" />
+              <span class="slider__val" id="tilt-val">-20°</span>
+            </label>
+            <span class="stat" id="stat">—</span>
+            <div class="controls__spacer"></div>
+            <button class="btn btn--ghost" id="snapshot">Save snapshot (PNG)</button>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>2D and 3D, same trial</h3>
+          <p>
+            The HTML-in-Canvas origin trial adds an entry point to <em>both</em> canvas APIs: the 2D
+            context gets <code>drawElementImage()</code> (used in example 15), and the WebGL /
+            WebGL2 contexts get <code>texElementImage2D(target, level, internalformat, format, type,
+            element)</code> — the texture-upload counterpart used here. We generate a UV sphere,
+            spin and tilt it with a model matrix, and a fragment shader draws the orb body, a
+            procedural meridian/parallel grid, per-pixel lighting and a fresnel rim, then samples
+            the form texture over a patch of the surface. Because the form is a real
+            <code>layoutsubtree</code> child, we still pin its DOM hit-box with a transform while it
+            faces front, so the fields stay focusable.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script>
+      (() => {
+        const canvas  = document.getElementById('scene');
+        const source  = document.getElementById('source');
+        const card    = document.getElementById('card');
+        const host    = document.getElementById('canvas-host');
+        const fbHost   = document.getElementById('fallback-host');
+        const stat     = document.getElementById('stat');
+        const notice   = document.getElementById('trial-notice');
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+        const snapBtn  = document.getElementById('snapshot');
+
+        const emailIn = document.getElementById('email');
+        const passIn  = document.getElementById('password');
+        const submit  = document.getElementById('submit');
+        const msg     = document.getElementById('msg');
+
+        const spinOn  = document.getElementById('spin-on');
+        const spinOff = document.getElementById('spin-off');
+        const speedIn = document.getElementById('speed'), speedVal = document.getElementById('speed-val');
+        const tiltIn  = document.getElementById('tilt'),  tiltVal  = document.getElementById('tilt-val');
+
+        const gl = canvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: true });
+        const supported = !!gl && typeof gl.texElementImage2D === 'function';
+
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        function showError(message, where) {
+          notice.hidden = false; notice.dataset.tone = 'error'; notice.textContent = '';
+          const strong = document.createElement('strong'); strong.textContent = `Runtime error in ${where}: `;
+          const code = document.createElement('code'); code.textContent = message;
+          notice.append(strong, code);
+          setDiag('bad', `error in ${where}`);
+        }
+        window.addEventListener('error', (e) => showError(e.message || String(e.error), 'window'));
+        setDiag(supported ? 'ok' : 'bad', supported ? 'texElementImage2D() ready' : 'WebGL2 / texElementImage2D missing');
+
+        // ── Sign-in behaviour ─────────────────────────────────────────
+        card.addEventListener('submit', (ev) => {
+          ev.preventDefault();
+          if (emailIn.value.trim() && passIn.value) { msg.dataset.tone = 'ok';  msg.textContent = 'Welcome back ✓ entering orbit…'; }
+          else                                       { msg.dataset.tone = 'bad'; msg.textContent = 'Enter an email and password to continue.'; }
+          markDirty();
+        });
+        let texDirty = true;
+        let rafPending = false;
+        function markDirty() { texDirty = true; requestFrame(); }
+        ['input', 'change', 'focusin', 'focusout', 'pointerover', 'pointerout', 'pointerdown', 'pointerup']
+          .forEach((ev) => card.addEventListener(ev, markDirty));
+
+        // ── State ─────────────────────────────────────────────────────
+        const state = { autoSpin: true, speed: 0.50, tiltRad: -20 * Math.PI / 180, spin: 0.0 };
+        const setPressed = (group, on) => { for (const b of group) b.setAttribute('aria-pressed', b === on ? 'true' : 'false'); };
+        spinOn.addEventListener('click', () => { state.autoSpin = true;  setPressed([spinOn, spinOff], spinOn);  requestFrame(); });
+        spinOff.addEventListener('click', () => {
+          state.autoSpin = false; setPressed([spinOn, spinOff], spinOff);
+          state.spin = Math.round(state.spin / (Math.PI * 2)) * Math.PI * 2;  // face the viewer
+          requestFrame();
+        });
+        speedIn.addEventListener('input', () => { state.speed = (+speedIn.value / 100) * 1.2; speedVal.textContent = state.speed.toFixed(2); requestFrame(); });
+        tiltIn .addEventListener('input', () => { state.tiltRad = (+tiltIn.value) * Math.PI / 180; tiltVal.textContent = `${tiltIn.value}°`; requestFrame(); });
+
+        if (!supported) { mountFallback(); return; }
+
+        // ── Tiny column-major mat4 helpers ────────────────────────────
+        const mul = (a, b) => {
+          const o = new Float32Array(16);
+          for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+            let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+            o[c * 4 + r] = s;
+          }
+          return o;
+        };
+        const perspective = (fovy, asp, near, far) => {
+          const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far), o = new Float32Array(16);
+          o[0] = f / asp; o[5] = f; o[10] = (far + near) * nf; o[11] = -1; o[14] = 2 * far * near * nf;
+          return o;
+        };
+        const rotY = (a) => { const c = Math.cos(a), s = Math.sin(a); const o = new Float32Array(16); o[0]=c; o[2]=-s; o[5]=1; o[8]=s; o[10]=c; o[15]=1; return o; };
+        const rotX = (a) => { const c = Math.cos(a), s = Math.sin(a); const o = new Float32Array(16); o[0]=1; o[5]=c; o[6]=s; o[9]=-s; o[10]=c; o[15]=1; return o; };
+        const translate = (x, y, z) => { const o = new Float32Array(16); o[0]=o[5]=o[10]=o[15]=1; o[12]=x; o[13]=y; o[14]=z; return o; };
+        const xform = (m, v) => [
+          m[0]*v[0] + m[4]*v[1] + m[8]*v[2]  + m[12]*v[3],
+          m[1]*v[0] + m[5]*v[1] + m[9]*v[2]  + m[13]*v[3],
+          m[2]*v[0] + m[6]*v[1] + m[10]*v[2] + m[14]*v[3],
+          m[3]*v[0] + m[7]*v[1] + m[11]*v[2] + m[15]*v[3],
+        ];
+
+        // ── Sphere mesh ───────────────────────────────────────────────
+        function makeSphere(seg, ring) {
+          const pos = [], nor = [], uv = [], idx = [];
+          for (let i = 0; i <= ring; i++) {
+            const v = i / ring, phi = (v - 0.5) * Math.PI, cy = Math.sin(phi), cr = Math.cos(phi);
+            for (let j = 0; j <= seg; j++) {
+              const u = j / seg, th = (u - 0.5) * 2 * Math.PI;
+              const x = cr * Math.sin(th), y = cy, z = cr * Math.cos(th);
+              pos.push(x, y, z); nor.push(x, y, z); uv.push(u, v);
+            }
+          }
+          const row = seg + 1;
+          for (let i = 0; i < ring; i++) for (let j = 0; j < seg; j++) {
+            const a = i * row + j, b = a + 1, c = a + row, d = c + 1;
+            idx.push(a, c, b, b, c, d);
+          }
+          return { pos: new Float32Array(pos), nor: new Float32Array(nor), uv: new Float32Array(uv), idx: new Uint16Array(idx) };
+        }
+
+        // ── Shaders ───────────────────────────────────────────────────
+        const VS = `#version 300 es
+        in vec3 aPos; in vec3 aNormal; in vec2 aUv;
+        uniform mat4 uMVP; uniform mat4 uModel;
+        out vec3 vNormal; out vec3 vWorld; out vec2 vUv;
+        void main() {
+          vUv = aUv;
+          vNormal = mat3(uModel) * aNormal;
+          vWorld = (uModel * vec4(aPos, 1.0)).xyz;
+          gl_Position = uMVP * vec4(aPos, 1.0);
+        }`;
+        const FS = `#version 300 es
+        precision highp float;
+        in vec3 vNormal; in vec3 vWorld; in vec2 vUv;
+        uniform vec3 uLightDir; uniform vec3 uCamPos;
+        uniform sampler2D uForm; uniform vec2 uDecalHalf; uniform float uMer; uniform float uPar;
+        out vec4 frag;
+        float lineF(float c, float n) { float x = c * n; float f = fract(x); float d = min(f, 1.0 - f); float w = fwidth(x); return 1.0 - smoothstep(0.0, w * 1.4, d); }
+        void main() {
+          vec3 N = normalize(vNormal);
+          vec3 V = normalize(uCamPos - vWorld);
+          float diff = max(0.0, dot(N, normalize(uLightDir)));
+          vec3 body = mix(vec3(0.02, 0.03, 0.06), vec3(0.17, 0.24, 0.36), diff);
+          float g = max(lineF(vUv.x, uMer), lineF(vUv.y, uPar));
+          vec3 col = mix(body, vec3(0.55, 0.78, 1.0), g * 0.5);
+          vec2 dc = vUv - vec2(0.5);
+          if (abs(dc.x) < uDecalHalf.x && abs(dc.y) < uDecalHalf.y) {
+            vec2 t = vec2(0.5 + 0.5 * dc.x / uDecalHalf.x, 0.5 - 0.5 * dc.y / uDecalHalf.y);
+            vec4 fm = texture(uForm, t);
+            col = mix(col, fm.rgb, fm.a);
+          }
+          col *= (0.3 + 0.85 * diff);
+          float fres = pow(1.0 - max(0.0, dot(N, V)), 3.0);
+          col += vec3(0.4, 0.6, 0.95) * fres * 0.7;
+          frag = vec4(col, 1.0);
+        }`;
+
+        function compile(type, src) {
+          const sh = gl.createShader(type);
+          gl.shaderSource(sh, src.replace(/\n        /g, '\n')); gl.compileShader(sh);
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+          return sh;
+        }
+        const prog = gl.createProgram();
+        gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+        gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+        gl.useProgram(prog);
+
+        const mesh = makeSphere(72, 54);
+        const vao = gl.createVertexArray();
+        gl.bindVertexArray(vao);
+        const bind = (data, loc, size) => {
+          const buf = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+          gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+          gl.enableVertexAttribArray(loc);
+          gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+        };
+        bind(mesh.pos, gl.getAttribLocation(prog, 'aPos'), 3);
+        bind(mesh.nor, gl.getAttribLocation(prog, 'aNormal'), 3);
+        bind(mesh.uv,  gl.getAttribLocation(prog, 'aUv'), 2);
+        const ibo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.idx, gl.STATIC_DRAW);
+
+        const uMVP = gl.getUniformLocation(prog, 'uMVP');
+        const uModel = gl.getUniformLocation(prog, 'uModel');
+        const uLightDir = gl.getUniformLocation(prog, 'uLightDir');
+        const uCamPos = gl.getUniformLocation(prog, 'uCamPos');
+        const uDecalHalf = gl.getUniformLocation(prog, 'uDecalHalf');
+        const uMer = gl.getUniformLocation(prog, 'uMer');
+        const uPar = gl.getUniformLocation(prog, 'uPar');
+
+        const formTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, formTex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+        gl.enable(gl.DEPTH_TEST);
+        gl.useProgram(prog);
+        gl.uniform3fv(uLightDir, new Float32Array([-0.45, 0.55, 0.85]));
+        gl.uniform1f(uMer, 18.0);
+        gl.uniform1f(uPar, 9.0);
+
+        // Decal patch half-extents (in uv units), sized to the form's aspect.
+        let decalHalf = [0.07, 0.18];
+        function refreshDecalHalf() {
+          const fw = source.offsetWidth || 272, fh = source.offsetHeight || 409;
+          const aLat = 0.62, aLon = aLat * (fw / fh);   // arc widths ∝ pixel size
+          decalHalf = [aLon / (2 * Math.PI), aLat / Math.PI];
+        }
+
+        // Upload the live form to the GPU. Throws "No cached paint record"
+        // until the element has painted once, so we keep texDirty until it
+        // succeeds. Re-uploads only when the form changes.
+        function uploadForm() {
+          try {
+            gl.bindTexture(gl.TEXTURE_2D, formTex);
+            gl.texElementImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+            refreshDecalHalf();
+            return true;
+          } catch (e) { return false; }   // not painted yet — retry next frame
+        }
+
+        // ── Sizing ────────────────────────────────────────────────────
+        const FOVY = 32 * Math.PI / 180, CAM_D = 4.2;
+        let cssW = 1, cssH = 1, dpr = 1;
+        function resize() {
+          const r = host.getBoundingClientRect();
+          cssW = Math.max(360, Math.floor(r.width));
+          cssH = Math.max(620, Math.floor(r.height));
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.style.width = `${cssW}px`; canvas.style.height = `${cssH}px`;
+          canvas.width = Math.floor(cssW * dpr); canvas.height = Math.floor(cssH * dpr);
+          requestFrame();
+        }
+        new ResizeObserver(resize).observe(host);
+        resize();
+
+        // ── Render ────────────────────────────────────────────────────
+        let last = performance.now(), paints = 0, fpsT = performance.now(), fpsAt = 0;
+
+        function setHitBox(mvp, model) {
+          // Project the decal's centre + edge points (object space) to screen
+          // and pin the live DOM box there, matching texElementImage2D's mapping.
+          const proj = (p) => {
+            const c = xform(mvp, [p[0], p[1], p[2], 1]);
+            return [(c[0] / c[3] * 0.5 + 0.5) * cssW, (1 - (c[1] / c[3] * 0.5 + 0.5)) * cssH];
+          };
+          const aLon = decalHalf[0] * 2 * Math.PI, aLat = decalHalf[1] * Math.PI;
+          const sphere = (phi, th) => [Math.cos(phi) * Math.sin(th), Math.sin(phi), Math.cos(phi) * Math.cos(th)];
+          const facing = model[10] > 0.25;   // rotated +Z normal toward camera
+          if (!facing) { source.style.transform = 'translate(-99999px,-99999px)'; source.style.pointerEvents = 'none'; return; }
+          const C = proj(sphere(0, 0));
+          const Lp = proj(sphere(0, -aLon)), Rp = proj(sphere(0, aLon));
+          const Tp = proj(sphere(aLat, 0)),  Bp = proj(sphere(-aLat, 0));
+          const fw = source.offsetWidth || 272, fh = source.offsetHeight || 409;
+          const hS = Math.hypot(Rp[0] - Lp[0], Rp[1] - Lp[1]) / fw || 0.001;
+          const vS = Math.hypot(Bp[0] - Tp[0], Bp[1] - Tp[1]) / fh || 0.001;
+          source.style.transform = `matrix(${hS}, 0, 0, ${vS}, ${C[0] - hS * fw / 2}, ${C[1] - vS * fh / 2})`;
+          source.style.pointerEvents = 'auto';
+        }
+
+        function render() {
+          const now = performance.now();
+          const dt = Math.min(0.1, (now - last) / 1000); last = now;
+          if (state.autoSpin) state.spin += dt * state.speed;
+
+          if (texDirty) { if (uploadForm()) texDirty = false; else requestFrame(); }
+
+          const model = mul(rotX(state.tiltRad), rotY(state.spin));
+          const view = translate(0, 0, -CAM_D);
+          const proj = perspective(FOVY, cssW / cssH, 0.1, 100);
+          const mvp = mul(proj, mul(view, model));
+
+          gl.viewport(0, 0, canvas.width, canvas.height);
+          gl.clearColor(0, 0, 0, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+          gl.useProgram(prog);
+          gl.bindVertexArray(vao);
+          gl.uniformMatrix4fv(uMVP, false, mvp);
+          gl.uniformMatrix4fv(uModel, false, model);
+          gl.uniform3fv(uCamPos, new Float32Array([0, 0, CAM_D]));
+          gl.uniform2fv(uDecalHalf, new Float32Array(decalHalf));
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, formTex);
+          gl.uniform1i(gl.getUniformLocation(prog, 'uForm'), 0);
+          gl.drawElements(gl.TRIANGLES, mesh.idx.length, gl.UNSIGNED_SHORT, 0);
+
+          setHitBox(mvp, model);
+
+          paints++;
+          if (state.autoSpin) {
+            if (now - fpsT >= 500) {
+              const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+              const deg = ((state.spin * 180 / Math.PI) % 360 + 360) % 360;
+              stat.textContent = `${fps.toFixed(0)} fps · spin ${deg.toFixed(0)}° · WebGL2`;
+              fpsT = now; fpsAt = paints;
+            }
+          } else { stat.textContent = 'rest · facing front'; fpsT = now; fpsAt = paints; }
+        }
+
+        function tick() { rafPending = false; render(); if (state.autoSpin) requestFrame(); }
+        function requestFrame() { if (!rafPending && supported) { rafPending = true; requestAnimationFrame(tick); } }
+        requestFrame();
+
+        // ── Snapshot ──────────────────────────────────────────────────
+        snapBtn.addEventListener('click', () => {
+          requestFrame();
+          requestAnimationFrame(() => {
+            const link = document.createElement('a');
+            link.download = `login-orb-webgl-${Date.now()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+          });
+        });
+
+        // ── Fallback ──────────────────────────────────────────────────
+        function mountFallback() {
+          fbHost.hidden = false; fbHost.append(source);
+          notice.hidden = false; notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong'); strong.textContent = 'texElementImage2D() not available.';
+          const code = document.createElement('code'); code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(strong, ' This 3D demo needs WebGL2 with the HTML-in-Canvas flag (', code, ' in Chrome 148+). Showing the form as plain DOM.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

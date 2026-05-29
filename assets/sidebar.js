@@ -41,6 +41,7 @@
         { href: 'examples/13-typewriter.html', label: 'Typewriter' },
         { href: 'examples/14-crawl.html', label: 'Title crawl' },
         { href: 'examples/15-login-orb.html', label: '3D login orb' },
+        { href: 'examples/16-login-orb-webgl.html', label: '3D login orb (WebGL)' },
       ],
     },
   ];

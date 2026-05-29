@@ -4,10 +4,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A static playground demonstrating Chrome's **HTML-in-Canvas origin trial** — the
-`CanvasRenderingContext2D.drawElementImage()` API, which paints a live, interactive DOM
-subtree into a 2D canvas. There is **no build system, no package manager, no dependencies**:
-just hand-written HTML/CSS/JS served as static files.
+A static playground demonstrating Chrome's **HTML-in-Canvas origin trial**, which paints a
+live, interactive DOM subtree into a `<canvas>`. There is **no build system, no package
+manager, no dependencies**: just hand-written HTML/CSS/JS served as static files.
+
+### The trial covers BOTH 2D and WebGL — it is not 2D-only
+
+The origin trial adds an entry point to *both* canvas context types. Don't assume you must
+fall back to the 2D context for 3D work — there is a native WebGL path:
+
+- **2D:** `CanvasRenderingContext2D.drawElementImage(element, x, y)` — paints the element into
+  the 2D bitmap and returns a `DOMMatrix` that maps the element's box to where it was drawn
+  (assign it to `element.style.transform` to keep the live DOM hit-box on the painted pixels).
+  Used by examples 01–15.
+- **WebGL / WebGL2:** `gl.texElementImage2D(target, level, internalformat, format, type, element)`
+  — the texture-upload counterpart (mirrors `texImage2D`'s element overload, arity 6). Uploads
+  the live element straight to the GPU as a texture for use on real 3D geometry with shaders.
+  Used by example 16 (3D login orb mapped onto an actual sphere mesh). It throws
+  `"No cached paint record for element"` until the element has painted at least once, so retry
+  on the next frame until the upload succeeds, and re-upload only when the element changes.
+
+WebGL gives you no returned transform for hit-testing. To keep a `texElementImage2D` form
+interactive, the element is still a `layoutsubtree` child, so you can pin its DOM hit-box by
+projecting the target geometry to screen and writing a `matrix(...)` to `element.style.transform`
+yourself (see example 16's `setHitBox`).
+
+Performance note: `drawElementImage` / `texElementImage2D` rasterize the DOM subtree, which is
+**main-thread work that a fast GPU cannot accelerate**. Call them ONCE per change (cache the
+result — a captured 2D bitmap, or the GPU texture) and reuse across frames; never per-tile or
+per-frame. Example 15 learned this the hard way (it called `drawElementImage` ~72×/frame and
+was unusable even on a high-end GPU until switched to capture-once + `drawImage`).
 
 ## Running
 
@@ -40,7 +66,7 @@ browsers.
 ## Layout
 
 - `index.html` — home gallery (one `<article class="card">` per demo).
-- `examples/NN-name.html` — self-contained demos, numbered 01–14. Each is a full page with its
+- `examples/NN-name.html` — self-contained demos, numbered 01–16. Each is a full page with its
   demo-specific CSS/JS inline.
 - `examples/_example-template.html` — copy this to start a new demo.
 - `assets/styles.css` — global design system (CSS custom-property tokens in `:root`) plus the
