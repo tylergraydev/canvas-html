@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pixel disintegration — HTML in Canvas</title>
+  <meta name="description" content="A richly styled profile card disintegrates into physics-driven particles on click." />
+  <link rel="stylesheet" href="../assets/styles.css" />
+  <link rel="stylesheet" href="../assets/example.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+  <style>
+    /* The demo is mounted in a shadow root on #demo-host, so its own
+       page CSS is fully isolated from this chrome. We only size the host. */
+    .demo-host { position: relative; width: 100%; height: 72vh; min-height: 480px; overflow: auto; }
+    .demo-attrib { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+    .demo-attrib a { color: var(--accent-2); }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="app">
+    <div id="sidebar-slot" data-base="../"></div>
+    <main id="main" class="content">
+      <header class="example__header">
+        <div>
+          <a class="example__back" href="../index.html">← All examples</a>
+          <p class="example__meta">html-in-canvas.dev · 2D</p>
+          <h1 class="example__title">Pixel disintegration</h1>
+          <p class="example__intro">A richly styled profile card disintegrates into physics-driven particles on click.</p>
+        </div>
+      </header>
+      <section class="stage" aria-label="Demo stage">
+        <div class="demo-host" id="demo-host"></div>
+      </section>
+      <section class="callout" style="margin-top:22px">
+        <h3>About this demo</h3>
+        <p class="demo-attrib">
+          Vendored verbatim from <a href="https://html-in-canvas.dev/demos/pixel-disintegration/" target="_blank" rel="noopener">html-in-canvas.dev</a>
+          (by En Dash Consulting, MIT-licensed — see <code>demos/UPSTREAM-LICENSE.txt</code>), then mounted in
+          a shadow root inside this page so it runs unmodified. View the
+          <a href="https://github.com/en-dash-consulting/html-in-canvas-dot-dev/tree/main/src/content/demos/pixel-disintegration" target="_blank" rel="noopener">original source</a>.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Inlined demo source: mounted into the shadow root by demo-embed.js -->
+  <script type="text/plain" id="demo-styles">
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        height: 100%;
+      }
+
+      body,
+      :host {
+        margin: 0;
+        min-height: 100%;
+        background: #0a0a0f;
+        color: #f0f0f0;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 1.5rem 1rem;
+        overflow-x: hidden;
+      }
+
+      h1 {
+        font-size: 1.15rem;
+        font-weight: 700;
+        text-align: center;
+        margin-bottom: 0.25rem;
+      }
+
+      .page-subtitle {
+        text-align: center;
+        font-size: 0.8rem;
+        color: #b0b0c8;
+        margin-bottom: 1.5rem;
+        max-width: 420px;
+        line-height: 1.4;
+      }
+
+      /* ============================================================
+         Canvas container
+         ============================================================ */
+      .scene {
+        position: relative;
+        width: 420px;
+        max-width: 100%;
+        cursor: pointer;
+      }
+
+      #canvas {
+        width: 100%;
+        height: auto;
+        display: block;
+        border-radius: 20px;
+      }
+
+      /* ============================================================
+         Card styles (rendered inside the canvas via drawElementImage)
+         ============================================================ */
+      .card {
+        width: 420px;
+        padding: 2rem;
+        background: linear-gradient(160deg, #16162a 0%, #0d0d1a 100%);
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        color: #f0f0f0;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .card-glow {
+        position: absolute;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+
+      .card-glow-1 {
+        top: -80px;
+        right: -60px;
+        width: 280px;
+        height: 280px;
+        background: radial-gradient(
+          circle,
+          rgba(240, 65, 108, 0.18) 0%,
+          transparent 70%
+        );
+      }
+
+      .card-glow-2 {
+        bottom: -50px;
+        left: -40px;
+        width: 220px;
+        height: 220px;
+        background: radial-gradient(
+          circle,
+          rgba(108, 65, 240, 0.12) 0%,
+          transparent 70%
+        );
+      }
+
+      .card-inner {
+        position: relative;
+        z-index: 1;
+      }
+
+      .avatar-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+
+      .avatar {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #f0416c 0%, #6c41f0 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.6rem;
+        flex-shrink: 0;
+        box-shadow: 0 4px 24px rgba(240, 65, 108, 0.3);
+      }
+
+      .avatar-info h2 {
+        font-size: 1.15rem;
+        font-weight: 700;
+        margin-bottom: 0.1rem;
+        letter-spacing: -0.01em;
+      }
+
+      .avatar-info .handle {
+        font-size: 0.78rem;
+        color: #b0b0c8;
+        font-weight: 400;
+      }
+
+      .tweet-body {
+        font-size: 0.88rem;
+        color: #d0d0e0;
+        line-height: 1.6;
+        margin-bottom: 1.15rem;
+      }
+
+      .tweet-body .highlight {
+        color: #a78bfa;
+        font-weight: 500;
+      }
+
+      .tweet-media {
+        width: 100%;
+        height: 140px;
+        border-radius: 14px;
+        background: linear-gradient(
+          135deg,
+          #1a1a3a 0%,
+          #0f0f2a 40%,
+          #1a0a2a 100%
+        );
+        margin-bottom: 1.15rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .media-pattern {
+        position: absolute;
+        inset: 0;
+        opacity: 0.15;
+        background-image: radial-gradient(
+            circle at 20% 40%,
+            #f0416c 1px,
+            transparent 1px
+          ),
+          radial-gradient(circle at 60% 25%, #6c41f0 1.5px, transparent 1.5px),
+          radial-gradient(circle at 80% 70%, #a78bfa 1px, transparent 1px),
+          radial-gradient(circle at 35% 75%, #f0416c 2px, transparent 2px),
+          radial-gradient(circle at 50% 50%, #6c41f0 1px, transparent 1px);
+        background-size: 80px 80px, 60px 60px, 90px 90px, 70px 70px, 50px 50px;
+      }
+
+      .media-text {
+        font-size: 0.72rem;
+        color: #9a9ab8;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        font-weight: 600;
+      }
+
+      .tweet-actions {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: space-between;
+        padding-top: 0.75rem;
+        border-top: 1px solid #1e1e38;
+      }
+
+      .action {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.72rem;
+        color: #9a9ab8;
+        font-weight: 500;
+      }
+
+      .action-icon {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.65rem;
+      }
+
+      .action-reply .action-icon {
+        color: #4a9eff;
+      }
+
+      .action-repost .action-icon {
+        color: #00c875;
+      }
+
+      .action-like .action-icon {
+        color: #f0416c;
+      }
+
+      .action-share .action-icon {
+        color: #9a7cff;
+      }
+
+      /* ============================================================
+         Status indicator + hint
+         ============================================================ */
+      .status-bar {
+        margin-top: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.72rem;
+        color: #9a9ab8;
+      }
+
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #333;
+        transition: background 0.3s;
+      }
+
+      .status-dot.intact {
+        background: #00c875;
+      }
+
+      .status-dot.disintegrating {
+        background: #f0416c;
+        animation: pulse 0.6s ease-in-out infinite alternate;
+      }
+
+      .status-dot.scattered {
+        background: #6c41f0;
+      }
+
+      .status-dot.reassembling {
+        background: #a78bfa;
+        animation: pulse 0.6s ease-in-out infinite alternate;
+      }
+
+      @keyframes pulse {
+        from {
+          opacity: 0.5;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      .hint {
+        margin-top: 0.75rem;
+        font-size: 0.7rem;
+        color: #9a9ab8;
+        text-align: center;
+      }
+
+      .hint kbd {
+        display: inline-block;
+        padding: 0.1rem 0.35rem;
+        background: #1a1a30;
+        border: 1px solid #333;
+        border-radius: 3px;
+        font-family: inherit;
+        font-size: 0.65rem;
+        color: #b0b0c8;
+      }
+
+      /* ============================================================
+         Pipeline explanation
+         ============================================================ */
+      .pipeline-info {
+        margin-top: 1.25rem;
+        max-width: 420px;
+        width: 100%;
+        padding: 0.85rem 1rem;
+        background: #14141f;
+        border: 1px solid #282840;
+        border-radius: 10px;
+        font-size: 0.72rem;
+        color: #b0b0c8;
+        line-height: 1.55;
+      }
+
+      .pipeline-info p {
+        margin-bottom: 0.3rem;
+      }
+
+      .pipeline-info p:last-child {
+        margin-bottom: 0;
+      }
+
+      .pipeline-info strong {
+        color: #8a8aaf;
+      }
+
+      .pipeline-info .hl {
+        color: #f0416c;
+      }
+
+      .pipeline-info code {
+        color: #9a7cff;
+        font-family: "Courier New", monospace;
+        font-size: 0.68rem;
+      }
+
+      .pipeline-info .note {
+        color: #8a8aa0;
+        font-size: 0.65rem;
+        margin-top: 0.4rem;
+      }
+
+      @media (max-width: 480px) {
+        body,
+      :host {
+          padding: 1rem 0.75rem;
+        }
+
+        .card {
+          width: 100%;
+          padding: 1.5rem;
+        }
+      }
+    
+  </script>
+  <template id="demo-body">
+<h1>Pixel Disintegration</h1>
+    <p class="page-subtitle">
+      Click the card to disintegrate it into thousands of particles sampled from
+      the rendered pixels. Click again to reassemble. A Thanos snap for HTML.
+    </p>
+
+    <div class="scene" id="scene">
+      <canvas id="canvas" width="840" height="1120" layoutsubtree>
+        <div class="card" id="card">
+          <div class="card-glow card-glow-1"></div>
+          <div class="card-glow card-glow-2"></div>
+          <div class="card-inner">
+            <div class="avatar-row">
+              <div class="avatar">&#10024;</div>
+              <div class="avatar-info">
+                <h2>Mika Torres</h2>
+                <div class="handle">@mika_builds</div>
+              </div>
+            </div>
+            <p class="tweet-body">
+              Just discovered you can render
+              <span class="highlight">full HTML + CSS</span> directly into a
+              canvas and then explode the pixels into particles. The future of
+              the web is absolutely wild.
+              <span class="highlight">#HTMLInCanvas</span>
+            </p>
+            <div class="tweet-media">
+              <div class="media-pattern"></div>
+              <span class="media-text">html-in-canvas preview</span>
+            </div>
+            <div class="tweet-actions">
+              <div class="action action-reply">
+                <div class="action-icon">&#8617;</div>
+                <span>247</span>
+              </div>
+              <div class="action action-repost">
+                <div class="action-icon">&#8635;</div>
+                <span>1.2k</span>
+              </div>
+              <div class="action action-like">
+                <div class="action-icon">&#9829;</div>
+                <span>4.8k</span>
+              </div>
+              <div class="action action-share">
+                <div class="action-icon">&#8599;</div>
+                <span>Share</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </canvas>
+    </div>
+
+    <div class="status-bar">
+      <div class="status-dot intact" id="status-dot"></div>
+      <span id="status-text">Intact — click to disintegrate</span>
+    </div>
+
+    <p class="hint">
+      <kbd>click</kbd> to snap &mdash; <kbd>click</kbd> again to reassemble
+    </p>
+
+    <div class="pipeline-info">
+      <p>
+        <strong>1.</strong> A tweet card lives inside a
+        <code>&lt;canvas layoutsubtree&gt;</code> — fully styled with CSS
+      </p>
+      <p>
+        <strong>2.</strong>
+        <span class="hl">drawElementImage()</span> renders the live HTML into
+        the canvas bitmap
+      </p>
+      <p>
+        <strong>3.</strong>
+        <span class="hl">getImageData()</span> reads every pixel's color and
+        position to seed particles
+      </p>
+      <p>
+        <strong>4.</strong> Particles <span class="hl">explode outward</span>
+        with velocity, gravity, and drag — then reassemble on demand
+      </p>
+      <p class="note">
+        This effect requires pixel-level access to rendered HTML — impossible
+        without HTML-in-Canvas.
+      </p>
+    </div>
+  </template>
+  <script type="application/json" id="demo-scripts">[{"body":"\n      // Resolve the script's root: a ShadowRoot when mounted via shadow\n      // DOM, or `document` when this file is served standalone.\n      const root = window.__demoRoot ?? document;\n      const $ = (id) => root.getElementById(id);\n\n      /* ==============================================================\n         DOM references\n         ============================================================== */\n      const scene = $(\"scene\");\n      const canvas = $(\"canvas\");\n      const card = $(\"card\");\n      const statusDot = $(\"status-dot\");\n      const statusText = $(\"status-text\");\n      const ctx = canvas.getContext(\"2d\");\n\n      /* ==============================================================\n         State machine\n         ============================================================== */\n      const State = {\n        INTACT: \"intact\",\n        DISINTEGRATING: \"disintegrating\",\n        SCATTERED: \"scattered\",\n        REASSEMBLING: \"reassembling\",\n      };\n\n      let state = State.INTACT;\n      let particles = [];\n      let animationProgress = 0;\n      let lastFrameTime = 0;\n\n      /* ==============================================================\n         Canvas sizing — match CSS layout at device pixel ratio\n         ============================================================== */\n      function syncCanvasSize() {\n        const rect = scene.getBoundingClientRect();\n        const dpr = devicePixelRatio;\n        const w = Math.round(rect.width * dpr);\n        const h = Math.round(rect.height * dpr);\n\n        if (canvas.width !== w || canvas.height !== h) {\n          canvas.width = w;\n          canvas.height = h;\n        }\n      }\n\n      function requestRepaint() {\n        if (canvas.requestPaint) {\n          canvas.requestPaint();\n        } else if (canvas.onpaint) {\n          canvas.onpaint();\n        }\n      }\n\n      const ro = new ResizeObserver(() => {\n        syncCanvasSize();\n        if (state === State.INTACT) {\n          requestRepaint();\n        }\n      });\n      ro.observe(scene);\n\n      /* ==============================================================\n         Paint handler — draws the HTML card into the canvas\n         ============================================================== */\n      canvas.onpaint = () => {\n        if (state !== State.INTACT) return;\n        ctx.clearRect(0, 0, canvas.width, canvas.height);\n        ctx.drawElementImage(card, 0, 0, canvas.width, canvas.height);\n      };\n\n      /* ==============================================================\n         Particle system\n         ============================================================== */\n\n      /* Sampling density — controls particle count vs. performance */\n      const SAMPLE_STEP = 4;\n\n      /* Physics constants */\n      const DISINTEGRATE_DURATION = 1.8;\n      const REASSEMBLE_DURATION = 1.4;\n\n      /**\n       * Harvest pixel data from the canvas and build the particle array.\n       * We sample every SAMPLE_STEP pixels to keep the count manageable\n       * while still capturing the full visual appearance.\n       */\n      function createParticles() {\n        const w = canvas.width;\n        const h = canvas.height;\n        const imageData = ctx.getImageData(0, 0, w, h);\n        const data = imageData.data;\n\n        particles = [];\n\n        for (let y = 0; y < h; y += SAMPLE_STEP) {\n          for (let x = 0; x < w; x += SAMPLE_STEP) {\n            const i = (y * w + x) * 4;\n            const r = data[i];\n            const g = data[i + 1];\n            const b = data[i + 2];\n            const a = data[i + 3];\n\n            /* Skip fully transparent pixels */\n            if (a < 10) continue;\n\n            /* Normalized position from card center */\n            const cx = w / 2;\n            const cy = h / 2;\n            const dx = x - cx;\n            const dy = y - cy;\n\n            /* Disintegration sweeps left-to-right: particles on the right\n               start moving first, creating the classic snap wave */\n            const normalizedX = x / w;\n\n            /* Random explosion angle biased outward from center */\n            const baseAngle = Math.atan2(dy, dx);\n            const spread = (Math.random() - 0.5) * 1.2;\n            const angle = baseAngle + spread;\n\n            /* Speed varies: further from center = faster */\n            const distFromCenter = Math.sqrt(dx * dx + dy * dy);\n            const maxDist = Math.sqrt(cx * cx + cy * cy);\n            const normalizedDist = distFromCenter / maxDist;\n            const speed =\n              (80 + Math.random() * 200 + normalizedDist * 120) *\n              (0.6 + Math.random() * 0.8);\n\n            particles.push({\n              /* Original (home) position */\n              homeX: x,\n              homeY: y,\n\n              /* Current animated position */\n              x: x,\n              y: y,\n\n              /* Velocity for explosion */\n              vx: Math.cos(angle) * speed,\n              vy: Math.sin(angle) * speed,\n\n              /* Color */\n              r: r,\n              g: g,\n              b: b,\n              a: a / 255,\n\n              /* Per-particle timing: wave delay based on X position */\n              delay: normalizedX * 0.5 + Math.random() * 0.15,\n\n              /* Size variation */\n              size: SAMPLE_STEP * (0.6 + Math.random() * 0.6),\n\n              /* Gravity and drag per-particle for organic feel */\n              gravity: 20 + Math.random() * 60,\n              drag: 0.96 + Math.random() * 0.03,\n\n              /* Rotation for visual interest */\n              rotation: Math.random() * Math.PI * 2,\n              rotationSpeed: (Math.random() - 0.5) * 4,\n\n              /* Fade timing */\n              fadeStart: 0.5 + Math.random() * 0.3,\n            });\n          }\n        }\n      }\n\n      /* ==============================================================\n         Render particles onto the canvas\n         ============================================================== */\n      function renderParticles(progress, isReassembling) {\n        ctx.clearRect(0, 0, canvas.width, canvas.height);\n\n        for (let i = 0; i < particles.length; i++) {\n          const p = particles[i];\n\n          /* Compute per-particle progress accounting for wave delay */\n          let t;\n          if (isReassembling) {\n            /* Reassembly: reverse the delay order (right-side returns last) */\n            const reverseDelay = (1 - p.delay / 0.65) * 0.4;\n            t = Math.max(0, Math.min(1, (progress - reverseDelay) / 0.6));\n          } else {\n            t = Math.max(0, Math.min(1, (progress - p.delay) / 0.5));\n          }\n\n          if (t <= 0 && !isReassembling) {\n            /* Particle hasn't started moving yet — draw at home */\n            ctx.globalAlpha = p.a;\n            ctx.fillStyle = `rgb(${p.r},${p.g},${p.b})`;\n            ctx.fillRect(p.homeX, p.homeY, SAMPLE_STEP, SAMPLE_STEP);\n            continue;\n          }\n\n          let px, py, alpha, size;\n\n          if (isReassembling) {\n            /* Ease-out: particles decelerate as they approach home */\n            const ease = 1 - Math.pow(1 - t, 3);\n            px = p.x + (p.homeX - p.x) * ease;\n            py = p.y + (p.homeY - p.y) * ease;\n            alpha = p.a * (0.3 + t * 0.7);\n            size = p.size * (0.4 + t * 0.6);\n          } else {\n            /* Ease-in: particles accelerate outward */\n            const ease = t * t;\n\n            /* Apply velocity with drag */\n            const dragFactor = Math.pow(p.drag, t * 60);\n            const dt = ease;\n            px = p.homeX + p.vx * dt * dragFactor;\n            py = p.homeY + p.vy * dt * dragFactor + p.gravity * dt * dt;\n\n            /* Fade out */\n            alpha =\n              t > p.fadeStart\n                ? p.a * (1 - (t - p.fadeStart) / (1 - p.fadeStart))\n                : p.a;\n            size = p.size * (1 + t * 0.5);\n          }\n\n          if (alpha < 0.01) continue;\n\n          ctx.globalAlpha = Math.max(0, alpha);\n          ctx.fillStyle = `rgb(${p.r},${p.g},${p.b})`;\n\n          /* Draw as a small rotated square for organic feel */\n          ctx.save();\n          ctx.translate(px, py);\n          ctx.rotate(p.rotation + p.rotationSpeed * t);\n          const half = size / 2;\n          ctx.fillRect(-half, -half, size, size);\n          ctx.restore();\n        }\n\n        ctx.globalAlpha = 1;\n      }\n\n      /* ==============================================================\n         Animation loop\n         ============================================================== */\n      function animate(timestamp) {\n        if (state === State.INTACT) return;\n\n        if (!lastFrameTime) lastFrameTime = timestamp;\n        const dt = (timestamp - lastFrameTime) / 1000;\n        lastFrameTime = timestamp;\n\n        const duration =\n          state === State.DISINTEGRATING\n            ? DISINTEGRATE_DURATION\n            : REASSEMBLE_DURATION;\n\n        animationProgress += dt / duration;\n\n        if (animationProgress >= 1) {\n          animationProgress = 1;\n\n          if (state === State.DISINTEGRATING) {\n            state = State.SCATTERED;\n            updateStatus();\n            /* Render final scattered state */\n            renderParticles(1, false);\n            return;\n          }\n\n          if (state === State.REASSEMBLING) {\n            state = State.INTACT;\n            updateStatus();\n            particles = [];\n            /* Re-render the original HTML card */\n            requestRepaint();\n            return;\n          }\n        }\n\n        renderParticles(\n          animationProgress,\n          state === State.REASSEMBLING,\n        );\n\n        requestAnimationFrame(animate);\n      }\n\n      /* ==============================================================\n         Click handler — toggle disintegrate / reassemble\n         ============================================================== */\n      scene.addEventListener(\"click\", () => {\n        if (state === State.INTACT) {\n          /* Capture the rendered HTML card into pixels */\n          syncCanvasSize();\n\n          /* Ensure the card is drawn before sampling */\n          ctx.clearRect(0, 0, canvas.width, canvas.height);\n          ctx.drawElementImage(card, 0, 0, canvas.width, canvas.height);\n\n          createParticles();\n          state = State.DISINTEGRATING;\n          animationProgress = 0;\n          lastFrameTime = 0;\n          updateStatus();\n          requestAnimationFrame(animate);\n          return;\n        }\n\n        if (state === State.SCATTERED) {\n          state = State.REASSEMBLING;\n          animationProgress = 0;\n          lastFrameTime = 0;\n          updateStatus();\n          requestAnimationFrame(animate);\n          return;\n        }\n\n        /* Ignore clicks during animation */\n      });\n\n      /* ==============================================================\n         Status indicator\n         ============================================================== */\n      function updateStatus() {\n        statusDot.className = \"status-dot \" + state;\n\n        const messages = {\n          [State.INTACT]: \"Intact \\u2014 click to disintegrate\",\n          [State.DISINTEGRATING]: \"Disintegrating\\u2026\",\n          [State.SCATTERED]: \"Scattered \\u2014 click to reassemble\",\n          [State.REASSEMBLING]: \"Reassembling\\u2026\",\n        };\n\n        statusText.textContent = messages[state];\n      }\n\n      /* ==============================================================\n         Initial paint\n         ============================================================== */\n      syncCanvasSize();\n      requestRepaint();\n    "}]</script>
+
+  <script src="../assets/sidebar.js" defer></script>
+  <script src="../assets/support-check.js" defer></script>
+  <script src="../assets/code-pane.js" defer></script>
+  <script src="../assets/demo-embed.js" defer></script>
+</body>
+</html>

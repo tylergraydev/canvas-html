@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Before vs After — HTML in Canvas</title>
+    <meta name="description" content="The same card rendered two ways: the old way (a frozen, inaccessible picture) versus a live, interactive DOM painted with drawElementImage()." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .ba-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+      @media (max-width: 860px) { .ba-grid { grid-template-columns: 1fr; } }
+
+      .ba-col {
+        border: 1px solid var(--border); border-radius: var(--radius);
+        background: var(--bg-elev); overflow: hidden; display: flex; flex-direction: column;
+      }
+      .ba-col[data-kind="old"] { border-color: rgba(248,113,113,.32); }
+      .ba-col[data-kind="new"] { border-color: rgba(52,211,153,.34); }
+
+      .ba-head {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 16px; border-bottom: 1px solid var(--border);
+      }
+      .ba-head__tag {
+        font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px;
+        padding: 3px 9px; border-radius: 999px; letter-spacing: .06em;
+      }
+      .ba-col[data-kind="old"] .ba-head__tag { background: rgba(248,113,113,.14); color: #fca5a5; border: 1px solid rgba(248,113,113,.4); }
+      .ba-col[data-kind="new"] .ba-head__tag { background: rgba(52,211,153,.14); color: #6ee7b7; border: 1px solid rgba(52,211,153,.4); }
+      .ba-head h2 { margin: 0; font-size: 15px; }
+      .ba-head__sub { margin: 0; font-size: 12px; color: var(--text-mute); }
+
+      .ba-host {
+        position: relative; height: 340px;
+        background:
+          radial-gradient(600px 360px at 80% -10%, rgba(124,92,255,.08), transparent 60%),
+          #0a0c12;
+        overflow: hidden;
+      }
+      .ba-host canvas { display: block; width: 100%; height: 100%; }
+      .ba-host canvas.live { pointer-events: none; }
+      .ba-host canvas.live ~ *, .ba-host canvas.live > * { pointer-events: auto; }
+      .ba-host canvas.live > * { pointer-events: auto; }
+
+      /* The live (right-hand) source card.
+         .ba-card is just a positioning anchor — drawElementImage() writes its
+         matrix to this element's transform, so the visible card + its float
+         live on an inner wrapper whose own transform we're free to animate. */
+      /* Vertical padding gives the floating inner room to move without being
+         clipped at the anchor's box when drawElementImage rasterizes it. */
+      .ba-card { width: 248px; padding: 10px 0; transform-origin: 0 0; }
+      .ba-card__inner {
+        padding: 18px;
+        background: linear-gradient(180deg, #1b2030, #11141c);
+        border: 1px solid #2a3243; border-radius: 14px;
+        box-shadow: 0 18px 40px -20px rgba(0,0,0,.7);
+        display: flex; flex-direction: column; gap: 13px; color: var(--text);
+      }
+      .ba-card h3 { margin: 0; font-size: 14px; }
+      .ba-card__clock {
+        font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 26px;
+        letter-spacing: .04em; font-variant-numeric: tabular-nums; margin: 0;
+      }
+      .ba-card label { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-mute); display: block; margin-bottom: 5px; }
+      .ba-card input {
+        width: 100%; background: var(--bg); border: 1px solid var(--border-strong); color: var(--text);
+        padding: 7px 9px; border-radius: 8px; font: inherit; font-size: 13px; outline: none;
+      }
+      .ba-card input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,.25); }
+      .ba-card__btn {
+        align-self: flex-start; padding: 7px 13px; border-radius: 8px; cursor: pointer;
+        border: 1px solid var(--border-strong); background: var(--bg-elev); color: var(--text); font: inherit; font-size: 13px;
+      }
+      .ba-card__btn:hover { background: var(--bg-elev-2); }
+      .ba-card__sel { font-size: 12px; color: var(--text-dim); }
+
+      /* The float + glow animations live in the #ba-css <style> below, so the
+         "CSS" tab of the code panel can show the exact rules that run. */
+      .ba-card__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .ba-badge {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10px; font-weight: 600; letter-spacing: .08em;
+        padding: 2px 8px; border-radius: 999px;
+        /* Base look so the badge is styled even when the animation is off
+           (reduced-motion); the keyframes just breathe between two tints. */
+        background: rgba(52,211,153,.16); color: #6ee7b7;
+        box-shadow: inset 0 0 0 1px rgba(52,211,153,.4);
+        animation: baBadge 1.6s ease-in-out infinite;
+      }
+      @keyframes baBadge {
+        0%, 100% { background: rgba(52,211,153,.16); color: #6ee7b7; box-shadow: inset 0 0 0 1px rgba(52,211,153,.4); }
+        50%      { background: rgba(34,211,238,.2);  color: #67e8f9; box-shadow: inset 0 0 0 1px rgba(34,211,238,.45); }
+      }
+
+      .ba-list { list-style: none; margin: 0; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 7px; border-top: 1px solid var(--border); }
+      .ba-list li { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; line-height: 1.4; }
+      .ba-list .mark { flex: none; width: 16px; height: 16px; margin-top: 1px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+      .ba-col[data-kind="old"] .ba-list li { color: #f3c0c0; }
+      .ba-col[data-kind="old"] .mark { background: rgba(248,113,113,.16); color: #fca5a5; }
+      .ba-col[data-kind="new"] .ba-list li { color: #b9ecd4; }
+      .ba-col[data-kind="new"] .mark { background: rgba(52,211,153,.16); color: #6ee7b7; }
+
+      .try-banner {
+        margin: 0 0 18px; padding: 12px 16px; border-radius: 10px;
+        border: 1px solid rgba(124,92,255,.34);
+        background: linear-gradient(90deg, rgba(124,92,255,.12), rgba(34,211,238,.05));
+        color: var(--text); font-size: 13.5px; line-height: 1.5;
+      }
+      .try-banner kbd {
+        font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px;
+        background: var(--bg); border: 1px solid var(--border-strong); border-bottom-width: 2px;
+        border-radius: 5px; padding: 1px 6px;
+      }
+    </style>
+    <!-- Kept as its own <style> so the code panel can display the exact CSS
+         that animates the live card (single source of truth — it both runs
+         and is shown). -->
+    <style id="ba-css">
+      /* The float + glow that animate the live card — pure CSS, no JS loop.
+         baGlow animates a *painted* property (box-shadow), so the browser
+         repaints the element every frame, which re-fires the canvas onpaint;
+         drawElementImage then re-stamps the latest frame, float offset and all. */
+      .ba-card__inner {
+        animation:
+          baFloat 3.6s ease-in-out infinite,
+          baGlow  2.4s ease-in-out infinite;
+        will-change: transform, box-shadow;
+      }
+      @keyframes baFloat {
+        0%, 100% { transform: translateY(-7px); }
+        50%      { transform: translateY(7px); }
+      }
+      @keyframes baGlow {
+        0%, 100% { box-shadow: 0 18px 40px -20px rgba(0,0,0,.7), 0 0 0 1px rgba(52,211,153,.12); }
+        50%      { box-shadow: 0 22px 50px -18px rgba(0,0,0,.7), 0 0 0 1px rgba(52,211,153,.5), 0 0 26px -4px rgba(52,211,153,.35); }
+      }
+    </style>
+  </head>
+  <body data-wide>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Concept 02 · Start here</p>
+            <h1 class="example__title">Before vs After</h1>
+            <p class="example__intro">
+              The exact same account card, rendered two ways into a canvas. On the left, the
+              <strong>old way</strong>: the UI is hand-drawn with <code>fillRect</code>/<code>fillText</code>
+              (or rasterized to an image) — a frozen, dead picture. On the right, the same card painted
+              with <code>drawElementImage()</code> — still a real, live DOM node that floats and glows
+              with plain CSS <code>@keyframes</code> animations (no JavaScript loop). Interact with both
+              and watch only one answer.
+            </p>
+          </div>
+        </header>
+
+        <p class="try-banner">
+          <strong>Try it:</strong> click the input in each card and type, click the button, then press
+          <kbd>Tab</kbd> to move focus. The left card is just pixels — nothing happens. The right card
+          is alive.
+        </p>
+
+        <section class="demo-code">
+        <div>
+        <section class="ba-grid">
+          <!-- ── OLD WAY ───────────────────────────────────────────── -->
+          <div class="ba-col" data-kind="old">
+            <div class="ba-head">
+              <span class="ba-head__tag">BEFORE</span>
+              <div>
+                <h2>Canvas alone</h2>
+                <p class="ba-head__sub">fillText / fillRect · or a rasterized snapshot</p>
+              </div>
+            </div>
+            <div class="ba-host">
+              <canvas id="old-canvas"></canvas>
+            </div>
+            <ul class="ba-list">
+              <li><span class="mark">✗</span> Frozen — the clock stopped the instant it was drawn</li>
+              <li><span class="mark">✗</span> Text isn't selectable; it's just colored pixels</li>
+              <li><span class="mark">✗</span> Invisible to screen readers — no roles, no labels</li>
+              <li><span class="mark">✗</span> The input can't be focused or typed into</li>
+              <li><span class="mark">✗</span> The button does nothing when clicked</li>
+              <li><span class="mark">✗</span> <kbd style="font-size:10px">Tab</kbd> skips right past it — no focus ring</li>
+            </ul>
+          </div>
+
+          <!-- ── NEW WAY ───────────────────────────────────────────── -->
+          <div class="ba-col" data-kind="new">
+            <div class="ba-head">
+              <span class="ba-head__tag">AFTER</span>
+              <div>
+                <h2>HTML in Canvas</h2>
+                <p class="ba-head__sub">drawElementImage() · the element stays live</p>
+              </div>
+            </div>
+            <div class="ba-host" id="new-host">
+              <div class="diag" id="diag" data-state="pending">
+                <span class="diag__dot" aria-hidden="true"></span>
+                <span id="diag-text">checking…</span>
+              </div>
+              <canvas class="live" id="new-canvas" layoutsubtree>
+                <article class="ba-card" id="source">
+                  <div class="ba-card__inner">
+                    <div class="ba-card__head">
+                      <h3>Account</h3>
+                      <span class="ba-badge">● LIVE</span>
+                    </div>
+                    <p class="ba-card__clock" id="clock">--:--:--</p>
+                    <div>
+                      <label for="ba-name">Display name</label>
+                      <input id="ba-name" type="text" placeholder="Type here…" autocomplete="off" />
+                    </div>
+                    <button class="ba-card__btn" id="ba-btn" type="button">Saved 0×</button>
+                    <p class="ba-card__sel">Try selecting this sentence.</p>
+                  </div>
+                </article>
+              </canvas>
+              <div class="fallback-host" id="fallback-host" hidden></div>
+            </div>
+            <ul class="ba-list">
+              <li><span class="mark">✓</span> Animated by pure CSS — it floats &amp; glows; the clock ticks live</li>
+              <li><span class="mark">✓</span> Real, selectable text you can drag across</li>
+              <li><span class="mark">✓</span> Full accessibility tree — headings, labels, roles</li>
+              <li><span class="mark">✓</span> The input focuses and accepts your typing</li>
+              <li><span class="mark">✓</span> The button actually counts your clicks</li>
+              <li><span class="mark">✓</span> <kbd style="font-size:10px">Tab</kbd> lands a genuine focus ring on the pixels</li>
+            </ul>
+          </div>
+        </section>
+
+        <div class="notice" id="trial-notice" hidden></div>
+        </div>
+
+          <aside class="code-pane" aria-label="Source code for this demo">
+            <div class="code-pane__bar">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="code-pane__name">02-before-after.html</span>
+            </div>
+            <div class="code-pane__scroll">
+              <p class="code-pane__cap">The live element inside the canvas</p>
+              <pre class="code-pane__pre" data-code-html="ba"></pre>
+              <p class="code-pane__cap">The CSS that animates it — pure @keyframes, no JS</p>
+              <pre class="code-pane__pre" data-code-from="ba-css"></pre>
+              <p class="code-pane__cap">The script — old-way reconstruction + live paint</p>
+              <pre class="code-pane__pre" data-code-from="ba-js"></pre>
+            </div>
+          </aside>
+        </section>
+
+        <section class="callout" style="margin-top:26px">
+          <h3>What's actually different</h3>
+          <p>
+            Both canvases end up holding pixels — that part is identical. The difference is
+            <em>where the pixels come from</em>. The left card is drawn once with imperative canvas
+            calls, so it can never update or respond; reproducing a real form that way means
+            re-implementing focus, carets, selection and accessibility by hand (almost nobody does).
+            The right card is a normal <code>&lt;article&gt;</code> with an <code>&lt;input&gt;</code>
+            and a <code>&lt;button&gt;</code> living inside <code>&lt;canvas layoutsubtree&gt;</code>; the
+            browser keeps laying it out and routing its events, and <code>drawElementImage()</code> just
+            stamps its current appearance into the bitmap every repaint.
+          </p>
+          <p style="margin-top:12px">
+            Even the motion is plain CSS. The card's glow and the breathing badge are
+            <code>@keyframes</code> animations on the element; because they animate <em>painted</em>
+            properties, the browser repaints the element each compositor frame, which re-fires
+            <code>onpaint</code> — so the script runs <strong>zero</strong> animation math and just
+            re-stamps the latest frame (watch the live fps in the canvas badge). Animating the frozen
+            left card would instead mean a hand-written <code>requestAnimationFrame</code> loop that
+            redraws every primitive by hand.
+          </p>
+        </section>
+
+        <section class="callout" style="margin-top:22px; border-style: solid; border-color: rgba(124,92,255,.35);">
+          <h3>Next</h3>
+          <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:6px;">
+            <a class="btn btn--primary" href="./03-accessibility.html">Why accessibility survives →</a>
+            <a class="btn btn--ghost" href="./01-what-is-this.html">← Back to the concept</a>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <!-- Capture the authored markup before the demo mutates the DOM. -->
+    <script>(window.__markup ||= {}).ba = document.getElementById('new-canvas').outerHTML;</script>
+    <script id="ba-js">
+      (() => {
+        // ── Shared rounded-rect helper ───────────────────────────────
+        function roundRect(ctx, x, y, w, h, r) {
+          if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+          ctx.beginPath();
+          ctx.moveTo(x + r, y);
+          ctx.arcTo(x + w, y, x + w, y + h, r);
+          ctx.arcTo(x + w, y + h, x, y + h, r);
+          ctx.arcTo(x, y + h, x, y, r);
+          ctx.arcTo(x, y, x + w, y, r);
+          ctx.closePath();
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  LEFT — "the old way": hand-drawn with canvas primitives, once.
+        //  Frozen at load time. No DOM, no events, no a11y. This is what
+        //  canvas gave you before the trial.
+        // ════════════════════════════════════════════════════════════
+        const oldCanvas = document.getElementById('old-canvas');
+        const octx = oldCanvas.getContext('2d');
+        // Capture the time ONCE so it's visibly frozen.
+        const frozen = (() => {
+          const d = new Date(), p = (n) => String(n).padStart(2, '0');
+          return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+        })();
+
+        function drawOld() {
+          const w = oldCanvas.width, h = oldCanvas.height;
+          octx.reset();
+          // backdrop
+          const bg = octx.createLinearGradient(0, 0, 0, h);
+          bg.addColorStop(0, '#0e1320'); bg.addColorStop(1, '#080a10');
+          octx.fillStyle = bg; octx.fillRect(0, 0, w, h);
+          octx.strokeStyle = 'rgba(255,255,255,.04)'; octx.lineWidth = 1;
+          octx.beginPath();
+          for (let x = 0; x <= w; x += 28) { octx.moveTo(x + .5, 0); octx.lineTo(x + .5, h); }
+          for (let y = 0; y <= h; y += 28) { octx.moveTo(0, y + .5); octx.lineTo(w, y + .5); }
+          octx.stroke();
+
+          // card box (matches the live card's footprint: ~248 + 36 padding)
+          const cw = 248 + 36, ch = 226;
+          const x = Math.round((w - cw) / 2), y = Math.round((h - ch) / 2);
+          octx.save();
+          octx.shadowColor = 'rgba(0,0,0,.6)'; octx.shadowBlur = 30; octx.shadowOffsetY = 16;
+          const cg = octx.createLinearGradient(0, y, 0, y + ch);
+          cg.addColorStop(0, '#1b2030'); cg.addColorStop(1, '#11141c');
+          octx.fillStyle = cg;
+          roundRect(octx, x, y, cw, ch, 14); octx.fill();
+          octx.restore();
+          octx.strokeStyle = '#2a3243'; octx.lineWidth = 1;
+          roundRect(octx, x, y, cw, ch, 14); octx.stroke();
+
+          const px = x + 18, top = y + 18;
+          // title
+          octx.fillStyle = '#e6e9ef';
+          octx.font = '600 14px ui-sans-serif, system-ui';
+          octx.textBaseline = 'top';
+          octx.fillText('Account', px, top);
+          // frozen clock
+          octx.fillStyle = '#e6e9ef';
+          octx.font = '26px "JetBrains Mono", ui-monospace, monospace';
+          octx.fillText(frozen, px, top + 26);
+          // label
+          octx.fillStyle = '#6b7280';
+          octx.font = '10px "JetBrains Mono", ui-monospace, monospace';
+          octx.fillText('DISPLAY NAME', px, top + 70);
+          // fake input box
+          octx.fillStyle = '#0b0d12';
+          roundRect(octx, px, top + 86, cw - 36, 32, 8); octx.fill();
+          octx.strokeStyle = '#2e3645'; octx.stroke();
+          octx.fillStyle = '#6b7280';
+          octx.font = '13px ui-sans-serif, system-ui';
+          octx.fillText('Type here…', px + 9, top + 95);
+          // fake button
+          octx.fillStyle = '#11151c';
+          roundRect(octx, px, top + 130, 86, 30, 8); octx.fill();
+          octx.strokeStyle = '#2e3645'; octx.stroke();
+          octx.fillStyle = '#e6e9ef';
+          octx.font = '13px ui-sans-serif, system-ui';
+          octx.fillText('Saved 0×', px + 13, top + 138);
+          // caption
+          octx.fillStyle = '#9aa3b2';
+          octx.font = '12px ui-sans-serif, system-ui';
+          octx.fillText('Try selecting this sentence.', px, top + 176);
+
+          // "frozen" stamp
+          octx.fillStyle = 'rgba(248,113,113,.9)';
+          octx.font = '600 10px "JetBrains Mono", ui-monospace, monospace';
+          octx.fillText('● FROZEN PIXELS', px, y + ch + 12);
+        }
+
+        function sizeOld() {
+          const p = oldCanvas.parentElement;
+          oldCanvas.width = Math.max(280, p.clientWidth);
+          oldCanvas.height = Math.max(300, p.clientHeight);
+          drawOld();
+        }
+        new ResizeObserver(sizeOld).observe(oldCanvas.parentElement);
+
+        // ════════════════════════════════════════════════════════════
+        //  RIGHT — the live card via drawElementImage().
+        // ════════════════════════════════════════════════════════════
+        const canvas = document.getElementById('new-canvas');
+        const ctx    = canvas.getContext('2d');
+        const source = document.getElementById('source');
+        const host   = document.getElementById('new-host');
+        const fbHost  = document.getElementById('fallback-host');
+        const clock  = document.getElementById('clock');
+        const btn    = document.getElementById('ba-btn');
+        const notice = document.getElementById('trial-notice');
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'live' : 'no API — plain DOM');
+
+        let saves = 0;
+        btn.addEventListener('click', () => { saves++; btn.textContent = `Saved ${saves}×`; });
+        function tick() {
+          const d = new Date(), p = (n) => String(n).padStart(2, '0');
+          clock.textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+        }
+        tick(); setInterval(tick, 1000);
+
+        let nt = 0;
+        function nudge() { nt = nt ? 0 : 1; source.style.opacity = nt ? '1' : '0.999999'; }
+
+        function sizeNew() {
+          const w = Math.max(280, host.clientWidth);
+          const h = Math.max(300, host.clientHeight);
+          canvas.width = w; canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(sizeNew).observe(host);
+
+        // The CSS animation on the card (glow + breathing badge) repaints it
+        // every compositor frame, which re-fires onpaint. paint() therefore
+        // does NO animation math — it just stamps the card at the centre. The
+        // fps readout shows the CSS animation driving real repaints.
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          ctx.reset();
+          const bg = ctx.createLinearGradient(0, 0, 0, h);
+          bg.addColorStop(0, '#0e1320'); bg.addColorStop(1, '#080a10');
+          ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+          ctx.strokeStyle = 'rgba(255,255,255,.04)'; ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let x = 0; x <= w; x += 28) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, h); }
+          for (let y = 0; y <= h; y += 28) { ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); }
+          ctx.stroke();
+
+          const cw = source.offsetWidth || 284, ch = source.offsetHeight || 226;
+          const x = Math.round((w - cw) / 2);
+          const y = Math.round((h - ch) / 2);
+          try {
+            const m = ctx.drawElementImage(source, x, y);
+            if (m && m.toString) source.style.transform = m.toString();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca'; ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            return;
+          }
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = Math.round((paints - fpsAt) * 1000 / (now - fpsT));
+            setDiag('ok', `live · ${fps} fps`);
+            fpsT = now; fpsAt = paints;
+          }
+        }
+
+        if (supported) {
+          canvas.onpaint = paint;
+          nudge();
+        } else {
+          fbHost.hidden = false;
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong');
+          strong.textContent = 'drawElementImage() not detected.';
+          const code = document.createElement('code');
+          code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(strong, ' Enable ', code, ' in Chrome 148+ to paint the right-hand card into the canvas. It is shown as plain DOM for now — note it is still fully interactive, which is exactly the point.');
+        }
+      })();
+    </script>
+    <script src="../assets/code-pane.js" defer></script>
+  </body>
+</html>

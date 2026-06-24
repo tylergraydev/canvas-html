@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>19 · Spinning text cube (WebGL) — HTML in Canvas</title>
+    <meta name="description" content="Six different live DOM panels uploaded as GPU textures via texElementImage2D and mapped onto a tumbling 3D cube." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 620px; display: grid; }
+      canvas.scene { min-height: 620px; background: transparent; position: relative; z-index: 1; }
+
+      /* Six square panels — one per cube face. They're layoutsubtree children
+         (so the browser lays them out and we can snapshot them), but inert,
+         because WebGL gives no transform to pin a hit-box to a rotating face. */
+      .face {
+        width: 232px; height: 232px;
+        box-sizing: border-box;
+        padding: 22px;
+        border-radius: 10px;
+        display: flex; flex-direction: column;
+        color: #fff;
+        overflow: hidden;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+      }
+      .face__kicker { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; opacity: 0.7; }
+
+      .face--title { background: linear-gradient(150deg, #7c5cff, #4a2fd6); justify-content: flex-end; gap: 8px; }
+      .face--title h2 { margin: 0; font-size: 34px; line-height: 1.02; font-family: ui-sans-serif, system-ui; letter-spacing: -0.02em; }
+      .face--title p { margin: 0; font-size: 13px; opacity: 0.85; }
+
+      .face--clock { background: linear-gradient(150deg, #0ea5b7, #0b3a52); justify-content: center; align-items: center; gap: 6px; }
+      .face--clock .clock__time { font-size: 46px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .face--clock .clock__date { font-size: 13px; opacity: 0.8; }
+
+      .face--emoji { background: linear-gradient(150deg, #ff7a45, #b83218); }
+      .face--emoji .emoji__grid { margin: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 56px; line-height: 1; }
+
+      .face--i18n { background: linear-gradient(150deg, #16a36b, #0c5a3a); justify-content: space-between; }
+      .face--i18n .i18n__big { font-size: 26px; }
+      .face--i18n .i18n__rtl { direction: rtl; font-size: 22px; }
+      .face--i18n .i18n__vert { writing-mode: vertical-rl; font-size: 22px; letter-spacing: 3px; align-self: flex-end; }
+
+      .face--bars { background: linear-gradient(150deg, #2b3350, #11151f); justify-content: flex-end; }
+      .face--bars .bars { display: flex; align-items: flex-end; gap: 10px; height: 120px; margin-top: auto; }
+      .face--bars .bars i { flex: 1; border-radius: 5px 5px 0 0; background: linear-gradient(180deg, #7c5cff, #22d3ee); }
+
+      .face--mark { background: linear-gradient(150deg, #f5b73d, #b9740a); align-items: center; justify-content: center; gap: 12px; text-align: center; color: #1a1205; }
+      .face--mark .mark__glyph { font-size: 60px; }
+      .face--mark .mark__api { font-size: 13px; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 19 · Showcase</p>
+            <h1 class="example__title">Spinning text cube (WebGL)</h1>
+            <p class="example__intro">
+              The WICG <code>webGL</code> sample, expanded into a tumbling cube. Each of the six faces
+              is a <em>different live DOM panel</em> — a title, a ticking clock, emoji, mixed-script
+              text, a CSS bar chart — uploaded straight to the GPU with
+              <code>texElementImage2D()</code> and mapped onto real cube geometry with perspective and
+              shader lighting. Panels are rasterised only when they change (the clock re-uploads once
+              a second), so the tumble itself is pure GPU work. No matrix library — the math is a few
+              dozen lines of hand-rolled <code>mat4</code>.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">WebGL2 · 6× texElementImage2D → cube faces</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+
+            <canvas class="scene" id="scene" layoutsubtree>
+              <div class="face face--title" inert>
+                <span class="face__kicker">Origin trial</span>
+                <h2>HTML<br />in Canvas</h2>
+                <p>six live faces, one GPU cube</p>
+              </div>
+              <div class="face face--clock" inert>
+                <span class="clock__time" id="clock-time">--:--:--</span>
+                <span class="clock__date" id="clock-date">—</span>
+              </div>
+              <div class="face face--emoji" inert>
+                <div class="emoji__grid">🎲<span>🚀</span>🎨🛰️</div>
+              </div>
+              <div class="face face--i18n" inert>
+                <span class="i18n__big">नमस्ते</span>
+                <span class="i18n__rtl">مرحبا بالعالم</span>
+                <span class="i18n__vert" lang="ja">立体テキスト</span>
+              </div>
+              <div class="face face--bars" inert>
+                <span class="face__kicker">GPU load</span>
+                <div class="bars">
+                  <i style="height:40%"></i><i style="height:72%"></i><i style="height:55%"></i>
+                  <i style="height:90%"></i><i style="height:63%"></i>
+                </div>
+              </div>
+              <div class="face face--mark" inert>
+                <span class="mark__glyph">🧊</span>
+                <span class="mark__api">texElementImage2D()</span>
+              </div>
+            </canvas>
+
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <div class="controls__group" role="group" aria-label="Spin">
+              <button class="seg" id="spin-on" aria-pressed="true">Tumble</button>
+              <button class="seg" id="spin-off" aria-pressed="false">Rest</button>
+            </div>
+            <label class="slider"><span>Speed</span><input type="range" id="speed" min="0" max="100" value="40" /><span class="slider__val" id="speed-val">0.48</span></label>
+            <label class="slider"><span>Tilt</span><input type="range" id="tilt" min="-45" max="45" value="-18" /><span class="slider__val" id="tilt-val">-18°</span></label>
+            <span class="stat" id="stat">—</span>
+            <div class="controls__spacer"></div>
+            <button class="btn btn--ghost" id="snapshot">Save snapshot (PNG)</button>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>One texture per face, uploaded on change</h3>
+          <p>
+            The cube is 24 vertices (4 per face) with per-face UVs and normals.
+            <code>texElementImage2D(target, level, internalformat, format, type, element)</code> is
+            the WebGL counterpart of <code>drawElementImage()</code>: it uploads a live element as a
+            GPU texture. We keep six textures and re-upload a face only when its panel changes — the
+            clock dirties itself once a second; the rest upload once and never again — so per-frame
+            cost is just six textured quads and the lighting shader. Unlike the 2D path, WebGL returns
+            no transform for hit-testing, so these faces are display-only and marked
+            <code>inert</code>; see <a href="16-login-orb-webgl.html">example 16</a> for the technique
+            that pins a live, typeable form onto a 3D surface.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script src="../assets/code-pane.js" defer></script>
+    <script>
+      (() => {
+        const canvas   = document.getElementById('scene');
+        const host     = document.getElementById('canvas-host');
+        const fbHost   = document.getElementById('fallback-host');
+        const stat     = document.getElementById('stat');
+        const notice   = document.getElementById('trial-notice');
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+        const snapBtn  = document.getElementById('snapshot');
+
+        const spinOn  = document.getElementById('spin-on');
+        const spinOff = document.getElementById('spin-off');
+        const speedIn = document.getElementById('speed'), speedVal = document.getElementById('speed-val');
+        const tiltIn  = document.getElementById('tilt'),  tiltVal  = document.getElementById('tilt-val');
+
+        const panels = [...canvas.querySelectorAll('.face')];   // 6 faces, in face order
+        const gl = canvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: true });
+        const supported = !!gl && typeof gl.texElementImage2D === 'function';
+
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        function showError(message, where) {
+          notice.hidden = false; notice.dataset.tone = 'error'; notice.textContent = '';
+          const strong = document.createElement('strong'); strong.textContent = `Runtime error in ${where}: `;
+          const code = document.createElement('code'); code.textContent = message;
+          notice.append(strong, code);
+          setDiag('bad', `error in ${where}`);
+        }
+        window.addEventListener('error', (e) => showError(e.message || String(e.error), 'window'));
+        setDiag(supported ? 'ok' : 'bad', supported ? 'texElementImage2D() ready' : 'WebGL2 / texElementImage2D missing');
+
+        // Live clock face — dirty it once a second.
+        function tickClock() {
+          const d = new Date();
+          const p = (n) => String(n).padStart(2, '0');
+          document.getElementById('clock-time').textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+          document.getElementById('clock-date').textContent = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+          dirty[1] = true;
+        }
+
+        const state = { autoSpin: true, speed: 0.48, tiltRad: -18 * Math.PI / 180, spin: 0 };
+        const setPressed = (group, on) => { for (const b of group) b.setAttribute('aria-pressed', b === on ? 'true' : 'false'); };
+        spinOn.addEventListener('click', () => { state.autoSpin = true; setPressed([spinOn, spinOff], spinOn); });
+        spinOff.addEventListener('click', () => { state.autoSpin = false; setPressed([spinOn, spinOff], spinOff); });
+        speedIn.addEventListener('input', () => { state.speed = (+speedIn.value / 100) * 1.2; speedVal.textContent = state.speed.toFixed(2); });
+        tiltIn .addEventListener('input', () => { state.tiltRad = (+tiltIn.value) * Math.PI / 180; tiltVal.textContent = `${tiltIn.value}°`; });
+
+        const dirty = [true, true, true, true, true, true];
+
+        if (!supported) { mountFallback(); return; }
+
+        // ── mat4 helpers (column-major) ───────────────────────────────
+        const mul = (a, b) => {
+          const o = new Float32Array(16);
+          for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+            let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+            o[c * 4 + r] = s;
+          }
+          return o;
+        };
+        const perspective = (fovy, asp, near, far) => {
+          const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far), o = new Float32Array(16);
+          o[0] = f / asp; o[5] = f; o[10] = (far + near) * nf; o[11] = -1; o[14] = 2 * far * near * nf;
+          return o;
+        };
+        const rotY = (a) => { const c = Math.cos(a), s = Math.sin(a), o = new Float32Array(16); o[0]=c; o[2]=-s; o[5]=1; o[8]=s; o[10]=c; o[15]=1; return o; };
+        const rotX = (a) => { const c = Math.cos(a), s = Math.sin(a), o = new Float32Array(16); o[0]=1; o[5]=c; o[6]=s; o[9]=-s; o[10]=c; o[15]=1; return o; };
+        const translate = (x, y, z) => { const o = new Float32Array(16); o[0]=o[5]=o[10]=o[15]=1; o[12]=x; o[13]=y; o[14]=z; return o; };
+
+        // ── Cube mesh: 6 faces, 4 verts each, per-face uv + normal ────
+        function makeCube(half) {
+          // center, right, up, normal — face order matches the DOM panels.
+          const F = [
+            { c: [0, 0, 1],  r: [1, 0, 0],  u: [0, 1, 0],  n: [0, 0, 1]  },  // +Z front  → title
+            { c: [1, 0, 0],  r: [0, 0, -1], u: [0, 1, 0],  n: [1, 0, 0]  },  // +X right  → clock
+            { c: [0, 0, -1], r: [-1, 0, 0], u: [0, 1, 0],  n: [0, 0, -1] },  // -Z back   → emoji
+            { c: [-1, 0, 0], r: [0, 0, 1],  u: [0, 1, 0],  n: [-1, 0, 0] },  // -X left   → i18n
+            { c: [0, 1, 0],  r: [1, 0, 0],  u: [0, 0, -1], n: [0, 1, 0]  },  // +Y top    → bars
+            { c: [0, -1, 0], r: [1, 0, 0],  u: [0, 0, 1],  n: [0, -1, 0] },  // -Y bottom → mark
+          ];
+          const pos = [], nor = [], uv = [], idx = [];
+          F.forEach((f, fi) => {
+            const corner = (sr, su) => [
+              (f.c[0] + sr * f.r[0] + su * f.u[0]) * half,
+              (f.c[1] + sr * f.r[1] + su * f.u[1]) * half,
+              (f.c[2] + sr * f.r[2] + su * f.u[2]) * half,
+            ];
+            const verts = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];   // bl br tr tl
+            const uvs = [[0, 0], [1, 0], [1, 1], [0, 1]];                                 // FLIP_Y → top at v=1
+            verts.forEach((v, k) => { pos.push(...v); nor.push(...f.n); uv.push(...uvs[k]); });
+            const b = fi * 4;
+            idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+          });
+          return { pos: new Float32Array(pos), nor: new Float32Array(nor), uv: new Float32Array(uv), idx: new Uint16Array(idx) };
+        }
+
+        const VS = `#version 300 es
+        in vec3 aPos; in vec3 aNormal; in vec2 aUv;
+        uniform mat4 uMVP; uniform mat4 uModel;
+        out vec3 vNormal; out vec2 vUv;
+        void main() {
+          vUv = aUv;
+          vNormal = mat3(uModel) * aNormal;
+          gl_Position = uMVP * vec4(aPos, 1.0);
+        }`;
+        const FS = `#version 300 es
+        precision highp float;
+        in vec3 vNormal; in vec2 vUv;
+        uniform vec3 uLightDir; uniform sampler2D uTex;
+        out vec4 frag;
+        void main() {
+          vec3 N = normalize(vNormal);
+          float diff = max(0.0, dot(N, normalize(uLightDir)));
+          vec4 t = texture(uTex, vUv);
+          vec3 col = t.rgb * (0.45 + 0.7 * diff);
+          float edge = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
+          col *= mix(0.45, 1.0, smoothstep(0.0, 0.04, edge));
+          frag = vec4(col, 1.0);
+        }`;
+
+        function compile(type, src) {
+          const sh = gl.createShader(type);
+          gl.shaderSource(sh, src.replace(/\n        /g, '\n')); gl.compileShader(sh);
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+          return sh;
+        }
+        const prog = gl.createProgram();
+        gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+        gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+        gl.useProgram(prog);
+
+        const mesh = makeCube(0.82);
+        const vao = gl.createVertexArray();
+        gl.bindVertexArray(vao);
+        const bind = (data, loc, size) => {
+          const buf = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+          gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+          gl.enableVertexAttribArray(loc);
+          gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+        };
+        bind(mesh.pos, gl.getAttribLocation(prog, 'aPos'), 3);
+        bind(mesh.nor, gl.getAttribLocation(prog, 'aNormal'), 3);
+        bind(mesh.uv,  gl.getAttribLocation(prog, 'aUv'), 2);
+        const ibo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.idx, gl.STATIC_DRAW);
+
+        const uMVP = gl.getUniformLocation(prog, 'uMVP');
+        const uModel = gl.getUniformLocation(prog, 'uModel');
+        const uLightDir = gl.getUniformLocation(prog, 'uLightDir');
+
+        // One texture per face.
+        const texs = panels.map(() => {
+          const t = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, t);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          return t;
+        });
+
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.enable(gl.DEPTH_TEST);
+        gl.uniform3fv(uLightDir, new Float32Array([-0.4, 0.6, 0.8]));
+
+        // Upload a single face's panel. Throws "No cached paint record"
+        // until the panel has painted once, so leave it dirty and retry.
+        function uploadFace(f) {
+          try {
+            gl.bindTexture(gl.TEXTURE_2D, texs[f]);
+            gl.texElementImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, panels[f]);
+            return true;
+          } catch (e) { return false; }
+        }
+
+        const FOVY = 34 * Math.PI / 180, CAM_D = 4.0;
+        let cssW = 1, cssH = 1, dpr = 1;
+        function resize() {
+          const r = host.getBoundingClientRect();
+          cssW = Math.max(360, Math.floor(r.width));
+          cssH = Math.max(600, Math.floor(r.height));
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.style.width = `${cssW}px`; canvas.style.height = `${cssH}px`;
+          canvas.width = Math.floor(cssW * dpr); canvas.height = Math.floor(cssH * dpr);
+        }
+        new ResizeObserver(resize).observe(host);
+        resize();
+
+        let last = performance.now(), paints = 0, fpsT = performance.now(), fpsAt = 0, uploads = 0;
+
+        function render() {
+          const now = performance.now();
+          const dt = Math.min(0.1, (now - last) / 1000); last = now;
+          if (state.autoSpin) state.spin += dt * state.speed;
+
+          for (let f = 0; f < 6; f++) if (dirty[f] && uploadFace(f)) { dirty[f] = false; uploads++; }
+
+          const model = mul(rotX(state.tiltRad + state.spin * 0.5), rotY(state.spin));
+          const view = translate(0, 0, -CAM_D);
+          const proj = perspective(FOVY, cssW / cssH, 0.1, 100);
+          const mvp = mul(proj, mul(view, model));
+
+          gl.viewport(0, 0, canvas.width, canvas.height);
+          gl.clearColor(0, 0, 0, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+          gl.useProgram(prog);
+          gl.bindVertexArray(vao);
+          gl.uniformMatrix4fv(uMVP, false, mvp);
+          gl.uniformMatrix4fv(uModel, false, model);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.uniform1i(gl.getUniformLocation(prog, 'uTex'), 0);
+
+          for (let f = 0; f < 6; f++) {
+            gl.bindTexture(gl.TEXTURE_2D, texs[f]);
+            gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, f * 6 * 2);
+          }
+
+          paints++;
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            stat.textContent = `${fps.toFixed(0)} fps · ${uploads} uploads · WebGL2`;
+            fpsT = now; fpsAt = paints;
+          }
+          requestAnimationFrame(render);
+        }
+
+        tickClock();
+        setInterval(tickClock, 1000);
+        requestAnimationFrame(render);
+
+        snapBtn.addEventListener('click', () => {
+          const link = document.createElement('a');
+          link.download = `text-cube-${performance.now() | 0}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        });
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          const grid = document.createElement('div');
+          grid.style.cssText = 'display:grid;grid-template-columns:repeat(3,232px);gap:14px;justify-content:center;';
+          for (const p of panels) grid.append(p);
+          fbHost.append(grid);
+          notice.hidden = false; notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong'); strong.textContent = 'texElementImage2D() not available.';
+          const code = document.createElement('code'); code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(strong, ' This 3D demo needs WebGL2 with the HTML-in-Canvas flag (', code, ' in Chrome 148+). Showing the six faces flat.');
+          stat.textContent = 'fallback · flat panels';
+        }
+      })();
+    </script>
+  </body>
+</html>

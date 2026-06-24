@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rich Text Canvas Editor — HTML-in-Canvas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        height: 100%;
+      }
+
+      body,
+      :host {
+        display: block;
+        margin: 0;
+        min-height: 100%;
+        background: #0a0a0f;
+        color: #f0f0f0;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        padding: 1.5rem;
+        overflow-x: hidden;
+      }
+
+      .editor-layout {
+        max-width: 920px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      /* ==========================================================
+         Canvas wrapper
+         ========================================================== */
+      .canvas-wrap {
+        background: #14141f;
+        border-radius: 12px;
+        padding: 1rem;
+        border: 1px solid #282840;
+      }
+
+      canvas {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        display: block;
+        border-radius: 6px;
+        cursor: text;
+      }
+
+      /* ==========================================================
+         Editor content — rendered inside the canvas via
+         layoutsubtree. The contenteditable attribute gives us
+         native browser text editing: selection, keyboard
+         shortcuts, clipboard, undo/redo — all for free.
+         ========================================================== */
+      #editor {
+        width: 100%;
+        height: 100%;
+        padding: 10% 12%;
+        font-family: "Inter", system-ui, sans-serif;
+        font-size: clamp(12px, 2vw, 18px);
+        color: #f0f0f0;
+        line-height: 1.7;
+        outline: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 0.5em;
+      }
+
+      #editor h2 {
+        font-family: "Playfair Display", serif;
+        font-size: 2.4em;
+        font-weight: 900;
+        line-height: 1.15;
+        color: #ffffff;
+        margin-bottom: 0.15em;
+      }
+
+      #editor p {
+        color: rgba(240, 240, 255, 0.8);
+        line-height: 1.7;
+      }
+
+      #editor strong {
+        color: #a78bfa;
+        font-weight: 600;
+      }
+
+      #editor em {
+        color: #67e8f9;
+        font-style: italic;
+      }
+
+      #editor u {
+        text-decoration-color: #f472b6;
+        text-underline-offset: 3px;
+      }
+
+      /* ==========================================================
+         Formatting toolbar
+         ========================================================== */
+      .toolbar {
+        display: flex;
+        gap: 2px;
+        padding: 0.5rem;
+        background: #1a1a2e;
+        border-radius: 8px;
+        border: 1px solid #282840;
+        flex-wrap: wrap;
+      }
+
+      .toolbar button {
+        padding: 0.4rem 0.65rem;
+        font-family: inherit;
+        font-size: 0.78rem;
+        font-weight: 500;
+        background: transparent;
+        color: #8888a0;
+        border: 1px solid transparent;
+        border-radius: 5px;
+        cursor: pointer;
+        transition:
+          background-color 0.12s ease,
+          color 0.12s ease,
+          border-color 0.12s ease;
+        line-height: 1;
+      }
+
+      .toolbar button:hover {
+        background: #282840;
+        color: #d0d0e0;
+      }
+
+      .toolbar button.active {
+        background: #6c41f0;
+        color: #fff;
+        border-color: #9a7cff;
+      }
+
+      .toolbar .sep {
+        width: 1px;
+        background: #282840;
+        margin: 0.2rem 0.35rem;
+        flex-shrink: 0;
+      }
+
+      .toolbar .label {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #9a9ab8;
+        align-self: center;
+        padding: 0 0.35rem;
+      }
+
+      /* ==========================================================
+         Effects controls panel
+         ========================================================== */
+      .controls {
+        background: #14141f;
+        border-radius: 12px;
+        padding: 1.25rem;
+        border: 1px solid #282840;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .controls h3 {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #b0b0c8;
+        margin-bottom: 0.15rem;
+      }
+
+      .effect-section {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid #1e1e30;
+      }
+
+      .effect-section:last-child {
+        padding-bottom: 0;
+        border-bottom: none;
+      }
+
+      .effect-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .effect-header h3 {
+        margin: 0;
+      }
+
+      .toggle {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+      }
+
+      .toggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+        position: absolute;
+      }
+
+      .toggle-track {
+        position: absolute;
+        inset: 0;
+        background: #2a2a40;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: background 0.2s ease;
+      }
+
+      .toggle-track::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        background: #888;
+        border-radius: 50%;
+        transition:
+          transform 0.2s ease,
+          background 0.2s ease;
+      }
+
+      .toggle input:checked + .toggle-track {
+        background: #6c41f0;
+      }
+
+      .toggle input:checked + .toggle-track::after {
+        transform: translateX(16px);
+        background: #fff;
+      }
+
+      .effect-controls {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem 0.75rem;
+      }
+
+      .control-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .control-field label {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #b0b0c8;
+      }
+
+      .control-field input[type="range"] {
+        width: 100%;
+        accent-color: #9a7cff;
+      }
+
+      .control-field input[type="color"] {
+        width: 100%;
+        height: 30px;
+        border: 1px solid #2a2a40;
+        border-radius: 5px;
+        background: #1e1e2e;
+        cursor: pointer;
+        padding: 2px;
+      }
+
+      @media (max-width: 600px) {
+        .effect-controls {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="editor-layout">
+      <!-- ============================================
+           FORMATTING TOOLBAR
+           Standard execCommand calls for rich text
+           formatting. The contenteditable div handles
+           the rest natively.
+           ============================================ -->
+      <div class="toolbar">
+        <span class="label">Format</span>
+        <button type="button" data-cmd="bold" title="Bold (Ctrl+B)">
+          <strong>B</strong>
+        </button>
+        <button type="button" data-cmd="italic" title="Italic (Ctrl+I)">
+          <em>I</em>
+        </button>
+        <button type="button" data-cmd="underline" title="Underline (Ctrl+U)">
+          <u>U</u>
+        </button>
+        <div class="sep"></div>
+        <button
+          type="button"
+          data-cmd="formatBlock"
+          data-value="h2"
+          title="Heading"
+        >
+          H
+        </button>
+        <button
+          type="button"
+          data-cmd="formatBlock"
+          data-value="p"
+          title="Paragraph"
+        >
+          P
+        </button>
+        <div class="sep"></div>
+        <button
+          type="button"
+          data-cmd="justifyLeft"
+          title="Align left"
+        >
+          Left
+        </button>
+        <button
+          type="button"
+          data-cmd="justifyCenter"
+          title="Align center"
+        >
+          Center
+        </button>
+      </div>
+
+      <!-- ============================================
+           CANVAS WITH EDITABLE CONTENT
+           The <canvas> with layoutsubtree renders its
+           child contenteditable div. The canvas paint
+           callback applies effects that pure CSS cannot
+           achieve: multi-pass neon glow, outline via
+           shadow offsets, and layered drop shadows.
+           ============================================ -->
+      <div class="canvas-wrap">
+        <canvas
+          id="canvas"
+          width="1280"
+          height="720"
+          layoutsubtree
+          aria-label="Rich text editor canvas with visual effects"
+        >
+          <div id="editor" contenteditable="true">
+            <h2>Creative Canvas Typography</h2>
+            <p>
+              Click here and start typing. This text is
+              <strong>fully editable</strong> with native browser
+              editing &mdash; <em>selection</em>, copy/paste, and
+              <u>undo</u> all work naturally.
+            </p>
+            <p>
+              The canvas applies <strong>real-time effects</strong>
+              that go beyond CSS: neon glow, drop shadow, and outline
+              rendered through the 2D canvas API.
+            </p>
+          </div>
+        </canvas>
+      </div>
+
+      <!-- ============================================
+           EFFECTS CONTROLS
+           Each effect is applied in the canvas paint
+           callback using ctx.shadow* properties and
+           multi-pass rendering. The contenteditable
+           HTML is drawn multiple times with different
+           shadow settings to build up the effects.
+           ============================================ -->
+      <div class="controls">
+        <!-- ---- Drop Shadow ---- -->
+        <div class="effect-section">
+          <div class="effect-header">
+            <h3>Drop Shadow</h3>
+            <label class="toggle">
+              <input type="checkbox" id="shadow-on" checked aria-label="Enable drop shadow effect" />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="effect-controls" id="shadow-controls">
+            <div class="control-field">
+              <label for="shadow-color">Color</label>
+              <input type="color" id="shadow-color" value="#000000" />
+            </div>
+            <div class="control-field">
+              <label for="shadow-blur">
+                Blur <span id="shadow-blur-val">12</span>px
+              </label>
+              <input
+                type="range"
+                id="shadow-blur"
+                min="0"
+                max="60"
+                value="12"
+              />
+            </div>
+            <div class="control-field">
+              <label for="shadow-x">
+                Offset X <span id="shadow-x-val">4</span>px
+              </label>
+              <input
+                type="range"
+                id="shadow-x"
+                min="-40"
+                max="40"
+                value="4"
+              />
+            </div>
+            <div class="control-field">
+              <label for="shadow-y">
+                Offset Y <span id="shadow-y-val">4</span>px
+              </label>
+              <input
+                type="range"
+                id="shadow-y"
+                min="-40"
+                max="40"
+                value="4"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- ---- Neon Glow ---- -->
+        <div class="effect-section">
+          <div class="effect-header">
+            <h3>Neon Glow</h3>
+            <label class="toggle">
+              <input type="checkbox" id="glow-on" aria-label="Enable neon glow effect" />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="effect-controls" id="glow-controls">
+            <div class="control-field">
+              <label for="glow-color">Color</label>
+              <input type="color" id="glow-color" value="#6c41f0" />
+            </div>
+            <div class="control-field">
+              <label for="glow-radius">
+                Radius <span id="glow-radius-val">20</span>px
+              </label>
+              <input
+                type="range"
+                id="glow-radius"
+                min="4"
+                max="80"
+                value="20"
+              />
+            </div>
+            <div class="control-field">
+              <label for="glow-intensity">
+                Passes <span id="glow-intensity-val">3</span>
+              </label>
+              <input
+                type="range"
+                id="glow-intensity"
+                min="1"
+                max="8"
+                value="3"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- ---- Outline ---- -->
+        <div class="effect-section">
+          <div class="effect-header">
+            <h3>Outline</h3>
+            <label class="toggle">
+              <input type="checkbox" id="outline-on" aria-label="Enable outline effect" />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="effect-controls" id="outline-controls">
+            <div class="control-field">
+              <label for="outline-color">Color</label>
+              <input type="color" id="outline-color" value="#00e5b9" />
+            </div>
+            <div class="control-field">
+              <label for="outline-width">
+                Width <span id="outline-width-val">2</span>px
+              </label>
+              <input
+                type="range"
+                id="outline-width"
+                min="1"
+                max="6"
+                value="2"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================
+         BEFORE / AFTER COMPARISON
+         CSS text-shadow is limited to a flat list of
+         shadows. Canvas compositing unlocks multi-pass
+         effects, per-pixel manipulation, and effects
+         that aren't possible with CSS alone.
+         ============================================ -->
+    <script>
+      // Resolve the script's root: a ShadowRoot when mounted via shadow
+      // DOM, or `document` when this file is served standalone.
+      const root = window.__demoRoot ?? document;
+      const $ = (id) => root.getElementById(id);
+
+      // =============================================================
+      // CANVAS SETUP
+      // =============================================================
+      const canvas = $("canvas");
+      const ctx = canvas.getContext("2d");
+      const editor = $("editor");
+
+      // =============================================================
+      // EFFECT STATE
+      // Each effect is controlled by a toggle and parameter sliders.
+      // =============================================================
+      const effects = {
+        shadow: {
+          enabled: true,
+          color: "#000000",
+          blur: 12,
+          x: 4,
+          y: 4,
+        },
+        glow: {
+          enabled: false,
+          color: "#6c41f0",
+          radius: 20,
+          intensity: 3,
+        },
+        outline: {
+          enabled: false,
+          color: "#00e5b9",
+          width: 2,
+        },
+      };
+
+      // =============================================================
+      // PAINT CALLBACK
+      // This is the heart of the demo. Each effect is rendered as a
+      // separate pass using ctx.shadow* properties before calling
+      // drawElementImage(). The final clean pass draws the content
+      // on top so the text remains crisp.
+      //
+      // WHY THIS BEATS CSS:
+      // - CSS text-shadow applies per text node; canvas shadow applies
+      //   to the entire composited HTML output as a unit.
+      // - Multi-pass rendering (glow intensity) isn't possible in CSS.
+      // - The outline effect uses directional shadow offsets that CSS
+      //   text-shadow can't replicate on mixed HTML content.
+      // =============================================================
+      function paint() {
+        // Canvas bitmap is 1:1 with CSS pixels — Chrome layoutsubtree
+        // needs that for child layout. See memory
+        // `project_layoutsubtree_bitmap_layout`.
+        const w = canvas.width;
+        const h = canvas.height;
+
+        ctx.clearRect(0, 0, w, h);
+
+        // Background
+        ctx.fillStyle = "#0d0d1a";
+        ctx.fillRect(0, 0, w, h);
+
+        let transform;
+
+        // --- Pass 1: Outline (drawn first, behind everything) ---
+        // Creates a colored border around all rendered content by
+        // drawing the element multiple times with small shadow
+        // offsets in 8 compass directions. CSS can't outline mixed
+        // HTML content this way.
+        if (effects.outline.enabled) {
+          const ow = effects.outline.width;
+          const dirs = [
+            [ow, 0],
+            [-ow, 0],
+            [0, ow],
+            [0, -ow],
+            [ow, ow],
+            [-ow, -ow],
+            [ow, -ow],
+            [-ow, ow],
+          ];
+          ctx.save();
+          ctx.shadowColor = effects.outline.color;
+          ctx.shadowBlur = 0;
+          for (const [dx, dy] of dirs) {
+            ctx.shadowOffsetX = dx;
+            ctx.shadowOffsetY = dy;
+            ctx.drawElementImage(editor, 0, 0);
+          }
+          ctx.restore();
+        }
+
+        // --- Pass 2: Neon glow ---
+        // Multiple draw passes with a large shadow blur build up a
+        // luminous glow around the content. The intensity slider
+        // controls how many passes are composited. This multi-pass
+        // approach isn't achievable with CSS text-shadow.
+        if (effects.glow.enabled) {
+          ctx.save();
+          ctx.shadowColor = effects.glow.color;
+          ctx.shadowBlur = effects.glow.radius;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+          for (let i = 0; i < effects.glow.intensity; i++) {
+            ctx.drawElementImage(editor, 0, 0);
+          }
+          ctx.restore();
+        }
+
+        // --- Pass 3: Drop shadow ---
+        // A classic offset shadow. While CSS box-shadow exists, the
+        // canvas version shadows the actual rendered pixels — not a
+        // bounding box — giving a true silhouette shadow of the
+        // content including text shapes.
+        if (effects.shadow.enabled) {
+          ctx.save();
+          ctx.shadowColor = effects.shadow.color;
+          ctx.shadowBlur = effects.shadow.blur;
+          ctx.shadowOffsetX = effects.shadow.x;
+          ctx.shadowOffsetY = effects.shadow.y;
+          transform = ctx.drawElementImage(editor, 0, 0);
+          ctx.restore();
+        }
+
+        // --- Final pass: clean content on top ---
+        // Draw the HTML content one last time without any shadow
+        // settings so the text itself remains sharp and readable
+        // above all the effect layers.
+        transform = ctx.drawElementImage(editor, 0, 0);
+        if (transform) {
+          editor.style.transform = transform.toString();
+        }
+      }
+
+      canvas.onpaint = paint;
+
+      // =============================================================
+      // RESIZE OBSERVER
+      // Keep the bitmap 1:1 with CSS pixels. No DPR scaling because
+      // Chrome's layoutsubtree lays out children against canvas.width
+      // — doubling it breaks child layout on Retina displays.
+      // =============================================================
+      const ro = new ResizeObserver(([entry]) => {
+        const { width, height } = entry.contentRect;
+        canvas.width = Math.round(width);
+        canvas.height = Math.round(height);
+        canvas.requestPaint?.();
+      });
+      ro.observe(canvas);
+
+      // =============================================================
+      // REPAINT HELPER
+      // Triggers a canvas repaint after any DOM or effect change.
+      // =============================================================
+      function requestRepaint() {
+        if (canvas.requestPaint) {
+          canvas.requestPaint();
+        } else if (canvas.onpaint) {
+          canvas.onpaint();
+        }
+      }
+
+      // =============================================================
+      // CONTENT CHANGE DETECTION
+      // The contenteditable div fires 'input' events on every edit.
+      // We request a repaint so the canvas re-renders the updated
+      // HTML with all active effects.
+      // =============================================================
+      editor.addEventListener("input", requestRepaint);
+
+      // =============================================================
+      // FORMATTING TOOLBAR
+      // Uses document.execCommand for rich text formatting. While
+      // execCommand is technically deprecated, it remains the only
+      // synchronous way to apply formatting to a contenteditable
+      // region and is still supported in all browsers.
+      // =============================================================
+      root.querySelectorAll(".toolbar button[data-cmd]").forEach((btn) => {
+        btn.addEventListener("mousedown", (e) => {
+          // Prevent the button click from stealing focus from the
+          // editor, which would collapse the selection.
+          e.preventDefault();
+        });
+
+        btn.addEventListener("click", () => {
+          const cmd = btn.dataset.cmd;
+          const value = btn.dataset.value || null;
+
+          if (cmd === "formatBlock") {
+            document.execCommand(cmd, false, "<" + value + ">");
+          } else {
+            document.execCommand(cmd, false, value);
+          }
+
+          updateToolbarState();
+          requestRepaint();
+        });
+      });
+
+      /** Update active state of toolbar buttons based on selection. */
+      function updateToolbarState() {
+        root.querySelectorAll(".toolbar button[data-cmd]").forEach((btn) => {
+          const cmd = btn.dataset.cmd;
+          if (cmd === "formatBlock") {
+            const block = document.queryCommandValue("formatBlock");
+            const match = btn.dataset.value;
+            btn.classList.toggle("active", block.toLowerCase() === match);
+          } else {
+            btn.classList.toggle("active", document.queryCommandState(cmd));
+          }
+        });
+      }
+
+      // Update toolbar state when selection changes inside the editor.
+      document.addEventListener("selectionchange", () => {
+        const sel = window.getSelection();
+        if (sel && editor.contains(sel.anchorNode)) {
+          updateToolbarState();
+        }
+      });
+
+      // =============================================================
+      // EFFECTS CONTROL BINDING
+      // Wire up each toggle and slider to the effects state object,
+      // then trigger a repaint.
+      // =============================================================
+
+      /** Helper: bind a checkbox toggle to an effect's enabled flag. */
+      function bindToggle(id, effectKey) {
+        const el = $(id);
+        el.addEventListener("change", () => {
+          effects[effectKey].enabled = el.checked;
+          requestRepaint();
+        });
+      }
+
+      /** Helper: bind a range slider to an effect property. */
+      function bindRange(id, effectKey, prop, valId) {
+        const el = $(id);
+        const valEl = valId ? $(valId) : null;
+        el.addEventListener("input", () => {
+          effects[effectKey][prop] = parseFloat(el.value);
+          if (valEl) valEl.textContent = el.value;
+          requestRepaint();
+        });
+      }
+
+      /** Helper: bind a color picker to an effect property. */
+      function bindColor(id, effectKey, prop) {
+        const el = $(id);
+        el.addEventListener("input", () => {
+          effects[effectKey][prop] = el.value;
+          requestRepaint();
+        });
+      }
+
+      // ---- Drop Shadow ----
+      bindToggle("shadow-on", "shadow");
+      bindColor("shadow-color", "shadow", "color");
+      bindRange("shadow-blur", "shadow", "blur", "shadow-blur-val");
+      bindRange("shadow-x", "shadow", "x", "shadow-x-val");
+      bindRange("shadow-y", "shadow", "y", "shadow-y-val");
+
+      // ---- Neon Glow ----
+      bindToggle("glow-on", "glow");
+      bindColor("glow-color", "glow", "color");
+      bindRange("glow-radius", "glow", "radius", "glow-radius-val");
+      bindRange("glow-intensity", "glow", "intensity", "glow-intensity-val");
+
+      // ---- Outline ----
+      bindToggle("outline-on", "outline");
+      bindColor("outline-color", "outline", "color");
+      bindRange("outline-width", "outline", "width", "outline-width-val");
+    </script>
+  </body>
+</html>

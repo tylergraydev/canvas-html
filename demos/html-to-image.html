@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HTML-to-image export — HTML in Canvas</title>
+  <meta name="description" content="A social / OG card generator that exports via canvas.toBlob() — a native html2canvas." />
+  <link rel="stylesheet" href="../assets/styles.css" />
+  <link rel="stylesheet" href="../assets/example.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
+  <style>
+    /* The demo is mounted in a shadow root on #demo-host, so its own
+       page CSS is fully isolated from this chrome. We only size the host. */
+    .demo-host { position: relative; width: 100%; height: 72vh; min-height: 480px; overflow: auto; }
+    .demo-attrib { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+    .demo-attrib a { color: var(--accent-2); }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="app">
+    <div id="sidebar-slot" data-base="../"></div>
+    <main id="main" class="content">
+      <header class="example__header">
+        <div>
+          <a class="example__back" href="../index.html">← All examples</a>
+          <p class="example__meta">html-in-canvas.dev · 2D</p>
+          <h1 class="example__title">HTML-to-image export</h1>
+          <p class="example__intro">A social / OG card generator that exports via canvas.toBlob() — a native html2canvas.</p>
+        </div>
+      </header>
+      <section class="stage" aria-label="Demo stage">
+        <div class="demo-host" id="demo-host"></div>
+      </section>
+      <section class="callout" style="margin-top:22px">
+        <h3>About this demo</h3>
+        <p class="demo-attrib">
+          Vendored verbatim from <a href="https://html-in-canvas.dev/demos/html-to-image/" target="_blank" rel="noopener">html-in-canvas.dev</a>
+          (by En Dash Consulting, MIT-licensed — see <code>demos/UPSTREAM-LICENSE.txt</code>), then mounted in
+          a shadow root inside this page so it runs unmodified. View the
+          <a href="https://github.com/en-dash-consulting/html-in-canvas-dot-dev/tree/main/src/content/demos/html-to-image" target="_blank" rel="noopener">original source</a>.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Inlined demo source: mounted into the shadow root by demo-embed.js -->
+  <script type="text/plain" id="demo-styles">
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        height: 100%;
+      }
+
+      body,
+      :host {
+        display: block;
+        position: relative;
+        margin: 0;
+        width: 100%;
+        min-height: 100%;
+        background:
+          radial-gradient(
+            ellipse at top right,
+            rgba(108, 65, 240, 0.18),
+            transparent 55%
+          ),
+          radial-gradient(
+            ellipse at bottom left,
+            rgba(0, 229, 185, 0.14),
+            transparent 60%
+          ),
+          #07070d;
+        color: #f0f0f0;
+        font-family: system-ui, -apple-system, sans-serif;
+        overflow-x: hidden;
+      }
+
+      .stage {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.25rem;
+        padding: 1.5rem;
+        min-height: min(78vh, 820px);
+      }
+
+      /* Canvas — the social card preview */
+      #canvas {
+        width: min(720px, 100%);
+        aspect-ratio: 1200 / 630;
+        display: block;
+        border-radius: 14px;
+        box-shadow:
+          0 30px 80px -20px rgba(0, 0, 0, 0.6),
+          0 0 0 1px rgba(255, 255, 255, 0.06);
+        flex-shrink: 0;
+      }
+
+      /* ==========================================================
+         The social card — drawn into the canvas via layoutsubtree.
+         All visual richness is pure CSS: gradients, custom fonts,
+         border-radius, shadows, layered decorative shapes. One
+         drawElementImage() call captures the whole thing.
+         ========================================================== */
+      #card {
+        --gradient-start: #6c41f0;
+        --gradient-end: #00e5b9;
+        --gradient-angle: 135deg;
+
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          var(--gradient-angle),
+          var(--gradient-start),
+          var(--gradient-end)
+        );
+        font-family: "Montserrat", system-ui, sans-serif;
+        font-size: clamp(11px, 1.8vw, 16px);
+        padding: 8%;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .deco {
+        position: absolute;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+
+      .deco-1 {
+        width: 45%;
+        aspect-ratio: 1;
+        top: -15%;
+        right: -10%;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .deco-2 {
+        width: 25%;
+        aspect-ratio: 1;
+        bottom: -8%;
+        left: -5%;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .deco-3 {
+        width: 12%;
+        aspect-ratio: 1;
+        top: 22%;
+        right: 28%;
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .card-content {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.6em;
+      }
+
+      .card-tag {
+        display: inline-block;
+        align-self: flex-start;
+        font-size: 0.65em;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        padding: 0.3em 0.8em;
+        border-radius: 100px;
+        background: rgba(255, 255, 255, 0.2);
+        color: #fff;
+      }
+
+      .card-title {
+        font-size: 2.1em;
+        font-weight: 800;
+        color: #fff;
+        line-height: 1.15;
+        text-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+        margin: 0;
+      }
+
+      .card-desc {
+        font-size: 0.88em;
+        color: rgba(255, 255, 255, 0.85);
+        line-height: 1.5;
+        margin: 0;
+      }
+
+      .card-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 0.4em;
+      }
+
+      .card-author {
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+      }
+
+      .avatar {
+        width: 2em;
+        height: 2em;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7em;
+        font-weight: 700;
+        color: #fff;
+        flex-shrink: 0;
+      }
+
+      .author-name {
+        font-size: 0.8em;
+        font-weight: 600;
+        color: #fff;
+      }
+
+      .card-domain {
+        font-size: 0.7em;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      /* Floating controls panel */
+      .controls {
+        width: min(720px, 100%);
+        padding: 1rem 1.25rem;
+        background: rgba(15, 15, 22, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 14px;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.5);
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem 1rem;
+        flex-shrink: 0;
+      }
+
+      .control {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+      }
+
+      .control-wide {
+        grid-column: 1 / -1;
+      }
+
+      .control label,
+      .control .control-group-label {
+        display: inline-block;
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #b8b8d0;
+      }
+
+      .control input[type="text"],
+      .control select {
+        padding: 0.45rem 0.7rem;
+        font-size: 0.82rem;
+        font-family: inherit;
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        color: #f0f0f0;
+        outline: none;
+      }
+
+      .control input[type="text"]:focus,
+      .control select:focus {
+        border-color: #9a7cff;
+      }
+
+      .swatches {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .swatches input[type="color"] {
+        flex: 0 0 32px;
+        height: 32px;
+        padding: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.4);
+        cursor: pointer;
+      }
+
+      .swatches input[type="range"] {
+        flex: 1;
+        accent-color: #9a7cff;
+      }
+
+      .actions {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+
+      .actions select {
+        flex: 0 0 auto;
+        min-width: 9rem;
+      }
+
+      .actions input[type="range"] {
+        flex: 1;
+        min-width: 6rem;
+        accent-color: #9a7cff;
+      }
+
+      .actions #btn-download {
+        margin-left: auto;
+        padding: 0.5rem 1.1rem;
+        font-family: inherit;
+        font-size: 0.8rem;
+        font-weight: 700;
+        background: #6c41f0;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+
+      .actions #btn-download:hover {
+        background: #7a52ff;
+      }
+
+      .quality-display {
+        font-size: 0.75rem;
+        color: #8a8aa0;
+        font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+        min-width: 2.5rem;
+        text-align: right;
+      }
+
+      @media (max-width: 540px) {
+        .controls {
+          grid-template-columns: 1fr;
+        }
+      }
+    
+  </script>
+  <template id="demo-body">
+<div class="stage">
+      <canvas
+        id="canvas"
+        width="1200"
+        height="630"
+        layoutsubtree
+        aria-label="Social card preview"
+      >
+        <div id="card">
+          <div class="deco deco-1"></div>
+          <div class="deco deco-2"></div>
+          <div class="deco deco-3"></div>
+          <div class="card-content">
+            <span class="card-tag" id="card-tag">Blog Post</span>
+            <h2 class="card-title" id="card-title">
+              Building the Future of Web Rendering
+            </h2>
+            <p class="card-desc" id="card-desc">
+              Native HTML-to-canvas rendering replaces html2canvas with a
+              single API call.
+            </p>
+            <div class="card-footer">
+              <div class="card-author">
+                <span class="avatar" id="card-avatar">JD</span>
+                <span class="author-name" id="card-author-name">Jane Doe</span>
+              </div>
+              <span class="card-domain">html-in-canvas.dev</span>
+            </div>
+          </div>
+        </div>
+      </canvas>
+
+      <div class="controls">
+        <div class="control control-wide">
+          <label for="input-title">Title</label>
+          <input type="text" id="input-title" value="Building the Future of Web Rendering" />
+        </div>
+        <div class="control control-wide">
+          <label for="input-desc">Description</label>
+          <input type="text" id="input-desc" value="Native HTML-to-canvas rendering replaces html2canvas with a single API call." />
+        </div>
+        <div class="control">
+          <label for="input-author">Author</label>
+          <input type="text" id="input-author" value="Jane Doe" />
+        </div>
+        <div class="control">
+          <span class="control-group-label" id="gradient-group-label">Gradient</span>
+          <div class="swatches" role="group" aria-labelledby="gradient-group-label">
+            <input type="color" id="input-color1" value="#6c41f0" aria-label="Gradient start color" />
+            <input type="color" id="input-color2" value="#00e5b9" aria-label="Gradient end color" />
+            <input type="range" id="input-angle" min="0" max="360" value="135" aria-label="Gradient angle in degrees" />
+          </div>
+        </div>
+        <div class="actions">
+          <select id="input-format" aria-label="Export image format">
+            <option value="image/png">PNG</option>
+            <option value="image/jpeg">JPEG</option>
+          </select>
+          <input type="range" id="input-quality" min="10" max="100" step="5" value="92" hidden />
+          <span class="quality-display" id="quality-value" hidden>92%</span>
+          <button id="btn-download" type="button">Download</button>
+        </div>
+      </div>
+    </div>
+  </template>
+  <script type="application/json" id="demo-scripts">[{"body":"\n      // Resolve the script's root: a ShadowRoot when mounted via shadow\n      // DOM, or `document` when this file is served standalone.\n      const root = window.__demoRoot ?? document;\n      const $ = (id) => root.getElementById(id);\n\n      const canvas = $(\"canvas\");\n      const ctx = canvas.getContext(\"2d\");\n      const card = $(\"card\");\n\n      // Paint callback — drawElementImage() captures the entire HTML\n      // card (gradients, custom fonts, layered shapes, everything) in\n      // a single call. This is the native replacement for html2canvas.\n      //\n      // Reset + re-scale on every paint so the transform state is\n      // deterministic. Previously the DPR scale lived in the\n      // ResizeObserver, which meant the first frame (before any\n      // resize) drew at 1x, producing a quarter-size image in the\n      // top-left of the DPR=2 bitmap.\n      function paintCard() {\n        ctx.reset();\n        ctx.drawElementImage(card, 0, 0);\n      }\n      canvas.onpaint = paintCard;\n\n      // ResizeObserver: keep the canvas bitmap at its CSS pixel size\n      // (not CSS × DPR). Chrome's <canvas layoutsubtree> uses the\n      // canvas's bitmap width as the layout viewport for child\n      // elements, so multiplying by DPR makes the children lay out\n      // at 2× their intended width and overflow the bitmap. Keeping\n      // the bitmap at CSS size means slightly less crisp text on\n      // Retina, but the layout is correct.\n      new ResizeObserver(([entry]) => {\n        const { width, height } = entry.contentRect;\n        canvas.width = Math.round(width);\n        canvas.height = Math.round(height);\n        canvas.requestPaint?.();\n      }).observe(canvas);\n\n      // ── Inputs → card mutations ──────────────────────────\n      const inputTitle = $(\"input-title\");\n      const inputDesc = $(\"input-desc\");\n      const inputAuthor = $(\"input-author\");\n      const inputColor1 = $(\"input-color1\");\n      const inputColor2 = $(\"input-color2\");\n      const inputAngle = $(\"input-angle\");\n      const inputFormat = $(\"input-format\");\n      const inputQuality = $(\"input-quality\");\n      const qualityValue = $(\"quality-value\");\n\n      const cardTitle = $(\"card-title\");\n      const cardDesc = $(\"card-desc\");\n      const cardAuthorName = $(\"card-author-name\");\n      const cardAvatar = $(\"card-avatar\");\n\n      function getInitials(name) {\n        return name\n          .split(/\\s+/)\n          .filter(Boolean)\n          .map((w) => w[0])\n          .join(\"\")\n          .toUpperCase()\n          .slice(0, 2);\n      }\n\n      function requestRepaint() {\n        canvas.requestPaint?.();\n      }\n\n      inputTitle.addEventListener(\"input\", () => {\n        cardTitle.textContent = inputTitle.value || \"Untitled\";\n        requestRepaint();\n      });\n\n      inputDesc.addEventListener(\"input\", () => {\n        cardDesc.textContent = inputDesc.value;\n        requestRepaint();\n      });\n\n      inputAuthor.addEventListener(\"input\", () => {\n        cardAuthorName.textContent = inputAuthor.value || \"Anonymous\";\n        cardAvatar.textContent = getInitials(inputAuthor.value || \"??\");\n        requestRepaint();\n      });\n\n      function updateGradient() {\n        card.style.setProperty(\"--gradient-start\", inputColor1.value);\n        card.style.setProperty(\"--gradient-end\", inputColor2.value);\n        card.style.setProperty(\"--gradient-angle\", inputAngle.value + \"deg\");\n        requestRepaint();\n      }\n\n      inputColor1.addEventListener(\"input\", updateGradient);\n      inputColor2.addEventListener(\"input\", updateGradient);\n      inputAngle.addEventListener(\"input\", updateGradient);\n\n      // Show/hide quality slider based on format\n      inputFormat.addEventListener(\"change\", () => {\n        const isJpeg = inputFormat.value === \"image/jpeg\";\n        inputQuality.hidden = !isJpeg;\n        qualityValue.hidden = !isJpeg;\n      });\n\n      inputQuality.addEventListener(\"input\", () => {\n        qualityValue.textContent = inputQuality.value + \"%\";\n      });\n\n      // Download — canvas.toBlob() captures the painted pixels.\n      // Because drawElementImage() rendered real HTML into the canvas\n      // moments ago, the resulting PNG/JPEG is pixel-perfect.\n      $(\"btn-download\").addEventListener(\"click\", () => {\n        const format = inputFormat.value;\n        const quality =\n          format === \"image/jpeg\"\n            ? parseInt(inputQuality.value, 10) / 100\n            : undefined;\n        const ext = format === \"image/jpeg\" ? \"jpg\" : \"png\";\n\n        canvas.toBlob(\n          (blob) => {\n            if (!blob) return;\n            const url = URL.createObjectURL(blob);\n            const a = document.createElement(\"a\");\n            a.href = url;\n            a.download = \"social-card.\" + ext;\n            document.body.appendChild(a);\n            a.click();\n            document.body.removeChild(a);\n            URL.revokeObjectURL(url);\n          },\n          format,\n          quality,\n        );\n      });\n    "}]</script>
+
+  <script src="../assets/sidebar.js" defer></script>
+  <script src="../assets/support-check.js" defer></script>
+  <script src="../assets/code-pane.js" defer></script>
+  <script src="../assets/demo-embed.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Accessible Charts — HTML-in-Canvas</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        height: 100%;
+      }
+
+      body,
+      :host {
+        display: block;
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(
+            ellipse at top right,
+            rgba(108, 65, 240, 0.14),
+            transparent 55%
+          ),
+          radial-gradient(
+            ellipse at bottom left,
+            rgba(0, 229, 185, 0.1),
+            transparent 60%
+          ),
+          #0a0a0f;
+        color: #f0f0f0;
+        font-family: system-ui, -apple-system, sans-serif;
+        padding: 2rem 1.5rem;
+        overflow-x: hidden;
+      }
+
+      .hero {
+        max-width: 960px;
+        margin: 0 auto 1.75rem;
+        text-align: center;
+      }
+
+      h1 {
+        font-size: 1.6rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        margin: 0 0 0.5rem;
+        color: #f0f0f0;
+        line-height: 1.15;
+      }
+
+      h1 .accent {
+        background: linear-gradient(90deg, #9a7cff, #00e5b9);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .hero p {
+        margin: 0;
+        color: #b0b0c8;
+        font-size: 0.95rem;
+        line-height: 1.55;
+        max-width: 44rem;
+        margin-inline: auto;
+      }
+
+      /* Live "what a screen reader announces" panel. Updates on focus,
+         so sighted users can see the same string a SR user would hear. */
+      .sr-preview {
+        max-width: 960px;
+        margin: 0 auto 1.5rem;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.85rem;
+        align-items: center;
+        padding: 0.85rem 1rem;
+        background: rgba(15, 15, 22, 0.78);
+        border: 1px solid #282840;
+        border-radius: 10px;
+      }
+
+      .sr-preview .sr-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.3rem 0.6rem;
+        background: rgba(108, 65, 240, 0.18);
+        border: 1px solid rgba(154, 124, 255, 0.4);
+        border-radius: 999px;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #cbbcff;
+      }
+
+      .sr-preview .sr-badge::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #9a7cff;
+        box-shadow: 0 0 8px #9a7cff;
+        animation: sr-pulse 1.6s ease-in-out infinite;
+      }
+
+      @keyframes sr-pulse {
+        0%,
+        100% {
+          opacity: 0.45;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+
+      .sr-preview .sr-text {
+        font-family:
+          "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+        font-size: 0.85rem;
+        color: #e0e0f0;
+        line-height: 1.4;
+        min-height: 1.4em;
+      }
+
+      .sr-preview .sr-text.idle {
+        color: #8a8aa0;
+        font-style: italic;
+      }
+
+      .charts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        max-width: 960px;
+        margin: 0 auto;
+      }
+
+      @media (max-width: 700px) {
+        .charts {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .chart-section {
+        background: #14141f;
+        border-radius: 12px;
+        padding: 1.25rem;
+        border: 1px solid #282840;
+      }
+
+      .chart-section h2 {
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        color: #f0f0f0;
+      }
+
+      canvas {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        display: block;
+        border-radius: 8px;
+      }
+
+      /*
+       * Label styles — these are real DOM elements drawn into the canvas.
+       * Screen readers see them directly; they ARE the accessible content.
+       */
+      .bar-label {
+        font-size: 12px;
+        line-height: 1.3;
+        text-align: center;
+        color: #f0f0f0;
+        padding: 4px 8px;
+        white-space: nowrap;
+        width: 70px;
+      }
+
+      .bar-label .name {
+        display: block;
+        font-weight: 600;
+      }
+
+      .bar-label .value {
+        display: block;
+        font-size: 11px;
+        color: #a0a0b8;
+      }
+
+      .pie-label {
+        font-size: 11px;
+        line-height: 1.3;
+        text-align: center;
+        color: #f0f0f0;
+        padding: 2px 6px;
+        white-space: nowrap;
+      }
+
+      .pie-label .name {
+        display: block;
+        font-weight: 600;
+      }
+
+      .pie-label .pct {
+        display: block;
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.8);
+      }
+
+      .instructions {
+        text-align: center;
+        margin: 1.5rem auto 0;
+        max-width: 44rem;
+        font-size: 0.82rem;
+        color: #a0a0b8;
+        line-height: 1.65;
+      }
+
+      .instructions kbd {
+        background: #1a1a28;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+        font-size: 0.72rem;
+        border: 1px solid #3a3a50;
+        color: #cbbcff;
+      }
+
+      .instructions code {
+        font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+        font-size: 0.78rem;
+        color: #9a7cff;
+      }
+
+      .hero code {
+        font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+        font-size: 0.82rem;
+        padding: 0.1rem 0.35rem;
+        background: rgba(108, 65, 240, 0.12);
+        border-radius: 4px;
+        color: #cbbcff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hero">
+      <h1>
+        The DOM <span class="accent">is</span> the accessibility layer
+      </h1>
+      <p>
+        Every label below is a real HTML element — tabbable, ARIA-annotated,
+        announced by screen readers. Drawn into the canvas with
+        <code>drawElementImage</code> + <code>layoutsubtree</code>, but the
+        accessibility tree is untouched.
+      </p>
+    </div>
+
+    <div class="sr-preview" aria-hidden="true">
+      <span class="sr-badge">Screen reader</span>
+      <span class="sr-text idle" id="sr-text">
+        Tab into a chart to hear what a screen-reader user hears.
+      </span>
+    </div>
+
+    <div class="charts">
+      <!-- ============================================
+           BAR CHART
+           Each <div> is a real HTML element with ARIA
+           semantics — drawn into the canvas, but still
+           focusable, tabbable, and announced by screen
+           readers. The drawn content IS the fallback.
+           ============================================ -->
+      <section class="chart-section">
+        <h2>Quarterly Revenue</h2>
+        <canvas
+          id="bar-chart"
+          width="400"
+          height="300"
+          layoutsubtree
+          role="list"
+          aria-label="Quarterly revenue bar chart"
+        >
+          <div
+            class="bar-label"
+            role="listitem"
+            tabindex="0"
+            aria-label="Q1 2025: $42,000"
+            data-value="42"
+          >
+            <span class="name">Q1</span>
+            <span class="value">$42K</span>
+          </div>
+          <div
+            class="bar-label"
+            role="listitem"
+            tabindex="0"
+            aria-label="Q2 2025: $58,000"
+            data-value="58"
+          >
+            <span class="name">Q2</span>
+            <span class="value">$58K</span>
+          </div>
+          <div
+            class="bar-label"
+            role="listitem"
+            tabindex="0"
+            aria-label="Q3 2025: $35,000"
+            data-value="35"
+          >
+            <span class="name">Q3</span>
+            <span class="value">$35K</span>
+          </div>
+          <div
+            class="bar-label"
+            role="listitem"
+            tabindex="0"
+            aria-label="Q4 2025: $71,000"
+            data-value="71"
+          >
+            <span class="name">Q4</span>
+            <span class="value">$71K</span>
+          </div>
+        </canvas>
+      </section>
+
+      <!-- ============================================
+           PIE CHART
+           Same pattern: real DOM elements with ARIA
+           roles, positioned radially and drawn into
+           the canvas. A focus ring is hand-drawn
+           around the wedge path when a label is
+           focused.
+           ============================================ -->
+      <section class="chart-section">
+        <h2>Market Share</h2>
+        <canvas
+          id="pie-chart"
+          width="400"
+          height="300"
+          layoutsubtree
+          role="list"
+          aria-label="Market share pie chart"
+        >
+          <div
+            class="pie-label"
+            role="listitem"
+            tabindex="0"
+            aria-label="Enterprise: 38%"
+            data-value="38"
+            data-color="#6C41F0"
+          >
+            <span class="name">Enterprise</span>
+            <span class="pct">38%</span>
+          </div>
+          <div
+            class="pie-label"
+            role="listitem"
+            tabindex="0"
+            aria-label="SMB: 27%"
+            data-value="27"
+            data-color="#00e5b9"
+          >
+            <span class="name">SMB</span>
+            <span class="pct">27%</span>
+          </div>
+          <div
+            class="pie-label"
+            role="listitem"
+            tabindex="0"
+            aria-label="Consumer: 22%"
+            data-value="22"
+            data-color="#ff5926"
+          >
+            <span class="name">Consumer</span>
+            <span class="pct">22%</span>
+          </div>
+          <div
+            class="pie-label"
+            role="listitem"
+            tabindex="0"
+            aria-label="Government: 13%"
+            data-value="13"
+            data-color="#d52e66"
+          >
+            <span class="name">Gov't</span>
+            <span class="pct">13%</span>
+          </div>
+        </canvas>
+      </section>
+    </div>
+
+    <p class="instructions">
+      <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> to enter a chart
+      &middot; <kbd>&larr;</kbd> <kbd>&rarr;</kbd> to move between items.
+      <br />
+      Watch the <em>Screen reader</em> panel above update as focus moves —
+      that's the live <code>aria-label</code> a SR user would hear.
+    </p>
+
+    <script>
+      // Resolve the script's root: a ShadowRoot when mounted via shadow
+      // DOM, or `document` when this file is served standalone.
+      const root = window.__demoRoot ?? document;
+
+      const srText = root.getElementById("sr-text");
+      const SR_IDLE = "Tab into a chart to hear what a screen-reader user hears.";
+
+      // Shared 0→1 entry animation progress. Bars grow from the x-axis
+      // and pie wedges sweep clockwise, proving the paint pipeline is
+      // live: each tick is driven by requestPaint() → onpaint().
+      //
+      // TODO(brave): when Brave's renderer stops crashing on
+      // ctx.drawFocusIfNeeded() under layoutsubtree, swap the
+      // hand-drawn focus rings below back to the native call — it
+      // matches the system focus-ring style for free.
+      let entryProgress = 0;
+      let entryStart = 0;
+      const ENTRY_DURATION = 900;
+
+      function easeOutCubic(t) {
+        return 1 - Math.pow(1 - t, 3);
+      }
+
+      function tickEntry(ts) {
+        if (!entryStart) entryStart = ts;
+        const raw = Math.min(1, (ts - entryStart) / ENTRY_DURATION);
+        entryProgress = easeOutCubic(raw);
+        barCanvas.requestPaint?.();
+        pieCanvas.requestPaint?.();
+        if (raw < 1) requestAnimationFrame(tickEntry);
+      }
+
+      // =============================================================
+      // BAR CHART
+      // =============================================================
+      const barCanvas = root.getElementById("bar-chart");
+      const barCtx = barCanvas.getContext("2d");
+      const barItems = Array.from(barCanvas.children);
+
+      const barColors = ["#6C41F0", "#00e5b9", "#ff5926", "#d52e66"];
+      const barMax = Math.max(
+        ...barItems.map((el) => Number(el.dataset.value))
+      );
+
+      function paintBarChart() {
+        // Bitmap is 1:1 with CSS pixels for layoutsubtree layout.
+        const cssW = barCanvas.width;
+        const cssH = barCanvas.height;
+
+        barCtx.clearRect(0, 0, cssW, cssH);
+
+        // Layout constants (in CSS pixels)
+        const pad = { top: 20, right: 20, bottom: 30, left: 45 };
+        const chartW = cssW - pad.left - pad.right;
+        const chartH = cssH - pad.top - pad.bottom;
+        const count = barItems.length;
+        const gap = chartW * 0.06;
+        const barW = (chartW - gap * (count + 1)) / count;
+        // Scale factor: leave 15% headroom above tallest bar
+        const scale = barMax * 1.15;
+
+        // ----- Grid lines and Y-axis labels -----
+        barCtx.strokeStyle = "#282840";
+        barCtx.lineWidth = 1;
+        barCtx.fillStyle = "#6a6a80";
+        barCtx.font = "11px system-ui, sans-serif";
+        barCtx.textAlign = "right";
+        barCtx.textBaseline = "middle";
+
+        for (let i = 0; i <= 4; i++) {
+          const y = pad.top + chartH * (1 - i / 4);
+          barCtx.beginPath();
+          barCtx.moveTo(pad.left, y);
+          barCtx.lineTo(cssW - pad.right, y);
+          barCtx.stroke();
+          barCtx.fillText(
+            "$" + Math.round((barMax * i) / 4) + "K",
+            pad.left - 8,
+            y
+          );
+        }
+
+        // ----- X-axis baseline -----
+        barCtx.strokeStyle = "#3a3a50";
+        barCtx.beginPath();
+        barCtx.moveTo(pad.left, pad.top + chartH);
+        barCtx.lineTo(cssW - pad.right, pad.top + chartH);
+        barCtx.stroke();
+
+        // ----- Bars and labels -----
+        const activeEl = root.activeElement ?? document.activeElement;
+        for (let i = 0; i < count; i++) {
+          const el = barItems[i];
+          const value = Number(el.dataset.value);
+          // Per-bar staggered progress: each bar waits a beat for the
+          // previous one so the entry reads as a sequence, not a blob.
+          const delay = i * 0.08;
+          const localRaw = Math.max(
+            0,
+            Math.min(1, (entryProgress - delay) / (1 - delay)),
+          );
+          const p = easeOutCubic(localRaw);
+          const barH = (value / scale) * chartH * p;
+          const x = pad.left + gap + i * (barW + gap);
+          const y = pad.top + chartH - barH;
+
+          // Rounded-top bar path. Traced once for fill, again (if
+          // focused) for the hand-drawn focus ring. See TODO(brave)
+          // at the top of the script for why we don't use
+          // drawFocusIfNeeded().
+          const r = Math.min(4, barW / 4);
+          function traceBar() {
+            barCtx.beginPath();
+            barCtx.moveTo(x + r, y);
+            barCtx.lineTo(x + barW - r, y);
+            barCtx.arcTo(x + barW, y, x + barW, y + r, r);
+            barCtx.lineTo(x + barW, pad.top + chartH);
+            barCtx.lineTo(x, pad.top + chartH);
+            barCtx.lineTo(x, y + r);
+            barCtx.arcTo(x, y, x + r, y, r);
+            barCtx.closePath();
+          }
+          traceBar();
+
+          // Gradient fill
+          const grad = barCtx.createLinearGradient(
+            x,
+            y,
+            x,
+            pad.top + chartH
+          );
+          grad.addColorStop(0, barColors[i]);
+          grad.addColorStop(1, barColors[i] + "44");
+          barCtx.fillStyle = grad;
+          barCtx.fill();
+
+          // Draw the HTML label element above the bar
+          // 35 = half of the 70px CSS width of .bar-label
+          const labelX = x + barW / 2 - 35;
+          const labelY = y - 38;
+          const transform = barCtx.drawElementImage(el, labelX, labelY);
+          if (transform) el.style.transform = transform.toString();
+
+          // Hand-drawn focus ring for the focused bar.
+          if (el === activeEl) {
+            traceBar();
+            barCtx.strokeStyle = "#ffffff";
+            barCtx.lineWidth = 2;
+            barCtx.stroke();
+            traceBar();
+            barCtx.strokeStyle = "#9a7cff";
+            barCtx.lineWidth = 5;
+            barCtx.globalAlpha = 0.5;
+            barCtx.stroke();
+            barCtx.globalAlpha = 1;
+          }
+        }
+      }
+
+      barCanvas.onpaint = paintBarChart;
+
+      // =============================================================
+      // PIE CHART
+      // =============================================================
+      const pieCanvas = root.getElementById("pie-chart");
+      const pieCtx = pieCanvas.getContext("2d");
+      const pieItems = Array.from(pieCanvas.children);
+
+      const pieTotal = pieItems.reduce(
+        (sum, el) => sum + Number(el.dataset.value),
+        0
+      );
+
+      function paintPieChart() {
+        // Bitmap is 1:1 with CSS pixels for layoutsubtree layout.
+        const cssW = pieCanvas.width;
+        const cssH = pieCanvas.height;
+
+        pieCtx.clearRect(0, 0, cssW, cssH);
+
+        const cx = cssW / 2;
+        const cy = cssH / 2;
+        const radius = Math.min(cssW, cssH) * 0.38;
+
+        // Sweep angle: wedges unfold clockwise from 12 o'clock on entry.
+        const sweep = entryProgress * Math.PI * 2;
+        let angle = -Math.PI / 2;
+
+        const activeEl = root.activeElement ?? document.activeElement;
+
+        for (let i = 0; i < pieItems.length; i++) {
+          const el = pieItems[i];
+          const value = Number(el.dataset.value);
+          const color = el.dataset.color;
+          const fullSlice = (value / pieTotal) * Math.PI * 2;
+          // Only draw the portion of this slice that's been swept so far.
+          const slice = Math.max(
+            0,
+            Math.min(fullSlice, sweep + -Math.PI / 2 - angle),
+          );
+          if (slice <= 0.0001) break;
+
+          // Wedge path. See TODO(brave) at the top of the script for
+          // why we hand-draw the focus ring instead of calling
+          // drawFocusIfNeeded().
+          function traceWedge() {
+            pieCtx.beginPath();
+            pieCtx.moveTo(cx, cy);
+            pieCtx.arc(cx, cy, radius, angle, angle + slice);
+            pieCtx.closePath();
+          }
+          traceWedge();
+
+          // Radial gradient fill
+          const grad = pieCtx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+          grad.addColorStop(0, color + "88");
+          grad.addColorStop(1, color);
+          pieCtx.fillStyle = grad;
+          pieCtx.fill();
+
+          // Dark border between slices
+          pieCtx.strokeStyle = "#0a0a0f";
+          pieCtx.lineWidth = 2;
+          pieCtx.stroke();
+
+          // Only paint the label once this slice is fully swept in,
+          // so labels don't pop in while the wedge is still partial.
+          if (slice >= fullSlice - 0.0001) {
+            const mid = angle + fullSlice / 2;
+            const lw = 35;
+            const lh = 15;
+            const lx = cx + Math.cos(mid) * radius * 0.6 - lw;
+            const ly = cy + Math.sin(mid) * radius * 0.6 - lh;
+            const transform = pieCtx.drawElementImage(el, lx, ly);
+            if (transform) el.style.transform = transform.toString();
+          } else {
+            // Offscreen placeholder so the label DOM element isn't
+            // visible during the sweep.
+            el.style.transform = "translate(-9999px, -9999px)";
+          }
+
+          // Hand-drawn focus ring for the focused wedge (only once
+          // the wedge is fully in place).
+          if (el === activeEl && slice >= fullSlice - 0.0001) {
+            traceWedge();
+            pieCtx.strokeStyle = "#ffffff";
+            pieCtx.lineWidth = 2.5;
+            pieCtx.stroke();
+            traceWedge();
+            pieCtx.strokeStyle = "#9a7cff";
+            pieCtx.lineWidth = 6;
+            pieCtx.globalAlpha = 0.5;
+            pieCtx.stroke();
+            pieCtx.globalAlpha = 1;
+          }
+
+          angle += fullSlice;
+        }
+      }
+
+      pieCanvas.onpaint = paintPieChart;
+
+      // =============================================================
+      // KEYBOARD NAVIGATION
+      // Arrow keys cycle through items within each chart.
+      // =============================================================
+      function setupKeyNav(canvas, items) {
+        canvas.addEventListener("keydown", (e) => {
+          // In shadow DOM, the active element lives on the shadow root;
+          // in standalone, it lives on document. `root` resolves to the
+          // right thing in both contexts.
+          const focused = root.activeElement ?? document.activeElement;
+          const idx = items.indexOf(focused);
+          if (idx === -1) return;
+
+          let next = -1;
+          if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+            next = (idx + 1) % items.length;
+          } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+            next = (idx - 1 + items.length) % items.length;
+          }
+
+          if (next !== -1) {
+            e.preventDefault();
+            items[next].focus();
+          }
+        });
+
+        // Repaint on focus changes so the focus ring updates, and
+        // mirror the focused element's aria-label into the live
+        // Screen-reader panel — this is the whole point of the demo:
+        // the string a SR announces is the same string a sighted
+        // user can see here.
+        items.forEach((el) => {
+          el.addEventListener("focus", () => {
+            if (srText) {
+              srText.textContent =
+                '"' + el.getAttribute("aria-label") + '"';
+              srText.classList.remove("idle");
+            }
+            canvas.requestPaint?.();
+          });
+          el.addEventListener("blur", () => {
+            canvas.requestPaint?.();
+            // Reset the SR panel only if focus has truly left the
+            // chart items (not just jumped to a sibling). Microtask
+            // delay so the next focus handler runs first.
+            queueMicrotask(() => {
+              const next = root.activeElement ?? document.activeElement;
+              if (!barItems.includes(next) && !pieItems.includes(next)) {
+                if (srText) {
+                  srText.textContent = SR_IDLE;
+                  srText.classList.add("idle");
+                }
+              }
+            });
+          });
+        });
+      }
+
+      setupKeyNav(barCanvas, barItems);
+      setupKeyNav(pieCanvas, pieItems);
+
+      // =============================================================
+      // RESIZE OBSERVER
+      // Keep the bitmap 1:1 with CSS pixels. Chrome's layoutsubtree
+      // uses canvas.width as the layout viewport for children, so a
+      // DPR-scaled bitmap breaks child layout on Retina displays
+      // (see project_layoutsubtree_bitmap_layout memory).
+      // =============================================================
+      function observeResize(canvas, paintFn) {
+        const ro = new ResizeObserver(([entry]) => {
+          const { width, height } = entry.contentRect;
+          canvas.width = Math.round(width);
+          canvas.height = Math.round(height);
+          // requestPaint() instead of onpaint() so the browser's paint
+          // pipeline runs and generates the cached paint records that
+          // drawElementImage() depends on.
+          canvas.requestPaint?.();
+        });
+        ro.observe(canvas);
+      }
+
+      observeResize(barCanvas, paintBarChart);
+      observeResize(pieCanvas, paintPieChart);
+
+      // Kick off the entry animation. The ResizeObserver above has
+      // already fired with real dimensions; this starts the 0→1
+      // progress ramp that paintBarChart and paintPieChart read.
+      requestAnimationFrame(tickEntry);
+    </script>
+  </body>
+</html>

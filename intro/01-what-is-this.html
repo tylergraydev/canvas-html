@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>What is HTML in Canvas? — HTML in Canvas</title>
+    <meta name="description" content="The problem HTML-in-Canvas solves, the mental model behind it, and the two API entry points — with live code." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      /* Prose sits in two readable columns on wide screens */
+      .concept {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 10px 40px;
+        margin-bottom: 8px;
+      }
+      .prose h2 { font-size: 18px; margin: 0 0 8px; letter-spacing: -.01em; }
+      .prose p { color: var(--text-dim); line-height: 1.6; margin: 0 0 14px; max-width: 60ch; }
+      .prose .lead { color: var(--text); font-size: 16px; }
+      .prose ul { margin: 0 0 14px; padding-left: 18px; color: var(--text-dim); line-height: 1.6; }
+      .prose li { margin: 4px 0; }
+      .prose .bad { color: #fca5a5; }
+      .prose .good { color: #6ee7b7; }
+
+      /* Live mini-demo card painted into the canvas */
+      .mini-card {
+        width: 280px;
+        padding: 20px;
+        background: linear-gradient(180deg, #1b2030, #11141c);
+        border: 1px solid #2a3243;
+        border-radius: 14px;
+        box-shadow: 0 18px 40px -20px rgba(0,0,0,.7);
+        display: flex; flex-direction: column; gap: 14px;
+        color: var(--text);
+        transform-origin: 0 0;
+      }
+      .mini-card__head { display: flex; align-items: center; justify-content: space-between; }
+      .mini-card__head h3 { margin: 0; font-size: 14px; }
+      .mini-badge {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10px; padding: 2px 8px; border-radius: 999px;
+        background: rgba(34,211,238,.16); color: #67e8f9;
+        border: 1px solid rgba(34,211,238,.4);
+        animation: miniPulse 1.6s ease-in-out infinite;
+      }
+      @keyframes miniPulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+      .mini-clock {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 30px; letter-spacing: .04em; font-variant-numeric: tabular-nums; margin: 0;
+      }
+      .mini-field { display: flex; flex-direction: column; gap: 6px; }
+      .mini-field label { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-mute); }
+      .mini-field input {
+        background: var(--bg); border: 1px solid var(--border-strong); color: var(--text);
+        padding: 8px 10px; border-radius: 8px; font: inherit; outline: none;
+      }
+      .mini-field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,.25); }
+      .mini-btn {
+        align-self: flex-start;
+        padding: 8px 14px; border-radius: 8px; cursor: pointer;
+        border: 1px solid var(--border-strong); background: var(--bg-elev); color: var(--text); font: inherit; font-size: 13px;
+      }
+      .mini-btn:hover { background: var(--bg-elev-2); }
+
+      .demo-code .canvas-host { height: 480px; min-height: 0; border-radius: var(--radius); border: 1px solid var(--border); }
+      .demo-code canvas.scene { height: 480px; min-height: 0; }
+      .demo-code .code-pane__scroll { max-height: 480px; }
+
+      /* Mental-model cards */
+      .model-grid {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 14px;
+      }
+      .model {
+        padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev);
+      }
+      .model code { font-size: .9em; }
+      .model h4 { margin: 0 0 6px; font-size: 14px; }
+      .model p { margin: 0; color: var(--text-dim); font-size: 13px; line-height: 1.55; }
+      .model__n {
+        font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--accent-2);
+        display: block; margin-bottom: 8px;
+      }
+
+      .two-apis { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+      @media (max-width: 920px) { .two-apis { grid-template-columns: 1fr; } }
+      .api-col h4 { margin: 0 0 4px; font-size: 14px; }
+      .api-col p { margin: 0 0 10px; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+
+      pre.snippet {
+        margin: 0; padding: 14px; background: #07090d; border: 1px solid var(--border); border-radius: 10px;
+        font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; line-height: 1.6;
+        overflow-x: auto; color: #cbd5e1;
+      }
+      .snippet .k { color: #c4b5fd; } .snippet .s { color: #86efac; }
+      .snippet .c { color: #6b7280; font-style: italic; } .snippet .f { color: #93c5fd; }
+
+      .next {
+        display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px;
+      }
+    </style>
+  </head>
+  <body data-wide>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Concept 01 · Start here</p>
+            <h1 class="example__title">What is HTML in Canvas?</h1>
+            <p class="example__intro">
+              For 20 years a <code>&lt;canvas&gt;</code> has been a one-way pixel buffer: you draw
+              into it, and whatever you drew is just colored dots — no text, no buttons, no
+              accessibility. Chrome's <strong>HTML-in-Canvas</strong> origin trial changes that. It
+              lets you paint a <em>live, interactive, accessible</em> DOM subtree straight into the
+              canvas bitmap. The card on the right is real HTML — painted by the canvas, yet you can
+              still type in it, click it, and tab to it.
+            </p>
+          </div>
+        </header>
+
+        <section class="concept">
+          <div class="prose">
+            <h2>The problem</h2>
+            <p class="lead">Canvas and the DOM each give you half of what you want.</p>
+            <ul>
+              <li><span class="bad">Canvas</span> is fast and pixel-perfect — great for games, charts,
+                shaders, 3D. But everything you draw is dead pixels: <span class="bad">not selectable,
+                not focusable, invisible to screen readers, no real inputs.</span></li>
+              <li><span class="good">The DOM</span> is rich and accessible — text reflows, inputs work,
+                a screen reader can read it. But it's hard to bend in 3D, warp, reflect, or feed into
+                a shader.</li>
+            </ul>
+            <p>Historically, to put a UI "in" a canvas you rebuilt it by hand with
+              <code>fillText</code>/<code>fillRect</code>, or rasterized it to a frozen image. Either
+              way you threw away the interactivity and the accessibility.</p>
+          </div>
+
+          <div class="prose">
+            <h2>The idea</h2>
+            <p>Put your real HTML <em>inside</em> the canvas and let the browser keep laying it out
+              and handling its events. Then, each time the canvas needs to repaint, ask it to stamp
+              that element's current pixels into the bitmap. The element stays live; the canvas just
+              gets a picture of it that's always up to date.</p>
+            <p>Because the element is still a real DOM node, focus rings, the tab order, text
+              selection and the accessibility tree all keep working — the canvas is now just the
+              <em>visual surface</em>. The whole demo below — markup and script — is shown verbatim
+              on the right.</p>
+          </div>
+        </section>
+
+        <section class="demo-code demo-code--even" aria-label="Live demo and its source">
+          <section class="stage" aria-label="Live demo" style="min-height:0">
+            <div class="canvas-host" id="canvas-host">
+              <span class="canvas-host__label">Canvas · real HTML, painted</span>
+              <div class="diag" id="diag" data-state="pending">
+                <span class="diag__dot" aria-hidden="true"></span>
+                <span id="diag-text">checking…</span>
+              </div>
+
+              <canvas class="scene" id="scene" layoutsubtree>
+                <article class="mini-card" id="source">
+                  <header class="mini-card__head">
+                    <h3>Live card</h3>
+                    <span class="mini-badge">REAL DOM</span>
+                  </header>
+                  <p class="mini-clock" id="clock">--:--:--</p>
+                  <div class="mini-field">
+                    <label for="mini-name">Try typing</label>
+                    <input id="mini-name" type="text" placeholder="…it actually works" autocomplete="off" />
+                  </div>
+                  <button class="mini-btn" id="mini-btn" type="button">Clicked 0×</button>
+                </article>
+              </canvas>
+
+              <div class="fallback-host" id="fallback-host" hidden></div>
+            </div>
+            <div class="notice" id="trial-notice" hidden></div>
+          </section>
+
+          <aside class="code-pane" aria-label="Source code for this demo">
+            <div class="code-pane__bar">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="code-pane__name">01-what-is-this.html</span>
+            </div>
+            <div class="code-pane__scroll">
+              <p class="code-pane__cap">The element living inside the canvas</p>
+              <pre class="code-pane__pre" data-code-html="hello"></pre>
+              <p class="code-pane__cap">The script that paints it</p>
+              <pre class="code-pane__pre" data-code-from="hello-js"></pre>
+            </div>
+          </aside>
+        </section>
+
+        <section class="callout" style="margin-top:30px">
+          <h3>The mental model — three moving parts</h3>
+          <div class="model-grid">
+            <div class="model">
+              <span class="model__n">01</span>
+              <h4><code>&lt;canvas layoutsubtree&gt;</code></h4>
+              <p>The <code>layoutsubtree</code> attribute tells the browser to lay out the canvas's
+                DOM children as if they were a normal part of the page.</p>
+            </div>
+            <div class="model">
+              <span class="model__n">02</span>
+              <h4><code>canvas.onpaint</code></h4>
+              <p>Fires whenever the canvas needs to repaint — a DOM mutation inside it, a keystroke,
+                a focus change. This is your render loop; usually no <code>requestAnimationFrame</code>.</p>
+            </div>
+            <div class="model">
+              <span class="model__n">03</span>
+              <h4>the returned transform</h4>
+              <p><code>drawElementImage()</code> hands back a matrix mapping the element's box to where
+                you painted it. Assign it to <code>element.style.transform</code> so clicks and focus
+                rings land on the painted pixels.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="callout" style="margin-top:22px">
+          <h3>Two entry points — it is not 2D-only</h3>
+          <p>The trial adds an element overload to <em>both</em> canvas context types.</p>
+          <div class="two-apis">
+            <div class="api-col">
+              <h4>2D — <code>drawElementImage</code></h4>
+              <p>Paints the element into the 2D bitmap and returns its transform. Used by most demos.</p>
+<pre class="snippet"><code><span class="k">const</span> ctx = canvas.<span class="f">getContext</span>(<span class="s">'2d'</span>);
+
+canvas.onpaint = () =&gt; {
+  ctx.<span class="f">reset</span>();
+  <span class="c">// draw your own backdrop, then the element</span>
+  <span class="k">const</span> t = ctx.<span class="f">drawElementImage</span>(card, x, y);
+  card.style.transform = t.<span class="f">toString</span>();
+};</code></pre>
+            </div>
+            <div class="api-col">
+              <h4>WebGL — <code>texElementImage2D</code></h4>
+              <p>Uploads the live element straight to the GPU as a texture for use on real 3D geometry.</p>
+<pre class="snippet"><code><span class="k">const</span> gl = canvas.<span class="f">getContext</span>(<span class="s">'webgl2'</span>);
+gl.<span class="f">bindTexture</span>(gl.TEXTURE_2D, tex);
+
+<span class="c">// mirrors texImage2D's element overload</span>
+gl.<span class="f">texElementImage2D</span>(
+  gl.TEXTURE_2D, <span class="s">0</span>, gl.RGBA,
+  gl.RGBA, gl.UNSIGNED_BYTE, card);</code></pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="callout" style="margin-top:22px; border-style: solid; border-color: rgba(124,92,255,.35);">
+          <h3>Next</h3>
+          <p>See the difference for yourself, then look at why it matters for everyone.</p>
+          <div class="next">
+            <a class="btn btn--primary" href="./02-before-after.html">Before vs After →</a>
+            <a class="btn btn--ghost" href="./03-accessibility.html">Accessibility, for real →</a>
+            <a class="btn btn--ghost" href="../examples/01-hello-html.html">Jump to the demos →</a>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <!-- Capture the authored markup before the demo mutates the DOM. -->
+    <script>(window.__markup ||= {}).hello = document.getElementById('scene').outerHTML;</script>
+    <script id="hello-js">
+      (() => {
+        const canvas = document.getElementById('scene');
+        const ctx    = canvas.getContext('2d');
+        const source = document.getElementById('source');
+        const host   = document.getElementById('canvas-host');
+        const fbHost  = document.getElementById('fallback-host');
+        const clock  = document.getElementById('clock');
+        const btn    = document.getElementById('mini-btn');
+        const notice = document.getElementById('trial-notice');
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        // Live clock + click counter — both are plain DOM mutations that the
+        // canvas notices and repaints.
+        let clicks = 0;
+        btn.addEventListener('click', () => { clicks++; btn.textContent = `Clicked ${clicks}×`; });
+        function tick() {
+          const d = new Date(), p = (n) => String(n).padStart(2, '0');
+          clock.textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+        }
+        tick(); setInterval(tick, 1000);
+
+        // nudge: toggle a genuinely-painted property by an imperceptible amount
+        // to force a single repaint on demand (see CLAUDE.md core pattern).
+        let nt = 0;
+        function nudge() { nt = nt ? 0 : 1; source.style.opacity = nt ? '1' : '0.999999'; }
+
+        function resize() {
+          // Read clientWidth/Height (host has a definite CSS height) so writing
+          // the canvas size back can't feed a ResizeObserver growth loop.
+          const w = Math.max(320, host.clientWidth);
+          const h = Math.max(360, host.clientHeight);
+          canvas.width = w; canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host);
+
+        function drawBackdrop(w, h) {
+          const g = ctx.createLinearGradient(0, 0, 0, h);
+          g.addColorStop(0, '#0e1320'); g.addColorStop(1, '#080a10');
+          ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+          ctx.strokeStyle = 'rgba(255,255,255,.04)'; ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let x = 0; x <= w; x += 28) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, h); }
+          for (let y = 0; y <= h; y += 28) { ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); }
+          ctx.stroke();
+        }
+
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          ctx.reset();
+          drawBackdrop(w, h);
+          const cw = source.offsetWidth || 280, ch = source.offsetHeight || 280;
+          const t = performance.now() / 1000;
+          const x = Math.round((w - cw) / 2);
+          const y = Math.round((h - ch) / 2 + Math.sin(t * 1.3) * 8);
+          try {
+            const m = ctx.drawElementImage(source, x, y);
+            if (m && m.toString) source.style.transform = m.toString();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca'; ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+          }
+        }
+
+        if (supported) {
+          canvas.onpaint = paint;
+          nudge();
+        } else {
+          fbHost.hidden = false;
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong');
+          strong.textContent = 'drawElementImage() not detected.';
+          const code = document.createElement('code');
+          code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(strong, ' Enable ', code, ' in Chrome 148+ to see the card painted by the canvas. For now it is shown as plain DOM.');
+        }
+      })();
+    </script>
+    <script src="../assets/code-pane.js" defer></script>
+  </body>
+</html>

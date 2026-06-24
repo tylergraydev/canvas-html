@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OffscreenCanvas worker — HTML in Canvas</title>
+  <meta name="description" content="Capture HTML as a transferable ElementImage and render it on an OffscreenCanvas in a Web Worker." />
+  <link rel="stylesheet" href="../assets/styles.css" />
+  <link rel="stylesheet" href="../assets/example.css" />
+  <style>
+    /* The demo is mounted in a shadow root on #demo-host, so its own
+       page CSS is fully isolated from this chrome. We only size the host. */
+    .demo-host { position: relative; width: 100%; height: 72vh; min-height: 480px; overflow: auto; }
+    .demo-attrib { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+    .demo-attrib a { color: var(--accent-2); }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="app">
+    <div id="sidebar-slot" data-base="../"></div>
+    <main id="main" class="content">
+      <header class="example__header">
+        <div>
+          <a class="example__back" href="../index.html">← All examples</a>
+          <p class="example__meta">html-in-canvas.dev · 2D · Worker</p>
+          <h1 class="example__title">OffscreenCanvas worker</h1>
+          <p class="example__intro">Capture HTML as a transferable ElementImage and render it on an OffscreenCanvas in a Web Worker.</p>
+        </div>
+      </header>
+      <section class="stage" aria-label="Demo stage">
+        <div class="demo-host" id="demo-host"></div>
+      </section>
+      <section class="callout" style="margin-top:22px">
+        <h3>About this demo</h3>
+        <p class="demo-attrib">
+          Vendored verbatim from <a href="https://html-in-canvas.dev/demos/offscreen-canvas-worker/" target="_blank" rel="noopener">html-in-canvas.dev</a>
+          (by En Dash Consulting, MIT-licensed — see <code>demos/UPSTREAM-LICENSE.txt</code>), then mounted in
+          a shadow root inside this page so it runs unmodified. View the
+          <a href="https://github.com/en-dash-consulting/html-in-canvas-dot-dev/tree/main/src/content/demos/offscreen-canvas-worker" target="_blank" rel="noopener">original source</a>.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Inlined demo source: mounted into the shadow root by demo-embed.js -->
+  <script type="text/plain" id="demo-styles">
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        height: 100%;
+      }
+
+      body,
+      :host {
+        display: block;
+        margin: 0;
+        min-height: 100%;
+        background: #0a0a0f;
+        color: #f0f0f0;
+        font-family: system-ui, -apple-system, sans-serif;
+        padding: 1.5rem;
+        overflow-x: hidden;
+      }
+
+      .layout {
+        max-width: 760px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .demo-panel {
+        background: #14141f;
+        border-radius: 12px;
+        padding: 1.5rem;
+        border: 1px solid #282840;
+      }
+
+      /* ── Section labels ──────────────────────────────── */
+      .section-label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #b0b0c8;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .edit-hint {
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: 0;
+        color: #9a9ab8;
+        font-size: 0.65rem;
+      }
+
+      .worker-badge {
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 0.6rem;
+        background: #2a1a4e;
+        color: #b79aff;
+        padding: 0.15em 0.5em;
+        border-radius: 4px;
+      }
+
+      /* ── Source element area ──────────────────────────── */
+      .source-area {
+        margin-bottom: 1rem;
+      }
+
+      /* The source lives inside a <canvas layoutsubtree> so we can
+         capture it as an ImageBitmap. The canvas itself is visually
+         transparent — the source div is laid out as a child and is
+         the thing the user sees and edits. */
+      #source-canvas {
+        display: block;
+        width: 100%;
+      }
+
+      #source {
+        background: #0d0d18;
+        border-radius: 8px;
+        padding: 1rem;
+        border: 1px dashed #282840;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+
+      #source:focus {
+        border-color: #9a7cff;
+      }
+
+      .source-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .source-card-icon {
+        font-size: 1.75rem;
+        line-height: 1;
+      }
+
+      .source-card h3 {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: #e0e0f0;
+      }
+
+      .source-card p {
+        font-size: 0.78rem;
+        line-height: 1.5;
+        color: #b8b8d0;
+      }
+
+      .source-card code {
+        background: #282840;
+        padding: 0.1em 0.35em;
+        border-radius: 3px;
+        font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+        font-size: 0.72rem;
+        color: #c3e88d;
+      }
+
+      .source-card-badge {
+        display: inline-block;
+        width: fit-content;
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        background: linear-gradient(135deg, #6c41f0, #9b6dff);
+        color: #fff;
+        padding: 0.25em 0.75em;
+        border-radius: 4px;
+      }
+
+      /* ── Controls row ────────────────────────────────── */
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+
+      .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.55rem 1rem;
+        border-radius: 8px;
+        border: none;
+        background: linear-gradient(135deg, #6c41f0, #9b6dff);
+        color: #fff;
+        font-family: inherit;
+        font-size: 0.78rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+
+      .btn-primary:hover {
+        opacity: 0.9;
+      }
+
+      .btn-primary:active {
+        opacity: 0.8;
+      }
+
+      .btn-primary:focus-visible {
+        outline: 2px solid #9b6dff;
+        outline-offset: 2px;
+      }
+
+      .btn-icon {
+        font-size: 0.9rem;
+      }
+
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        color: #b8b8d0;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .toggle input {
+        accent-color: #9a7cff;
+      }
+
+      /* ── Worker canvas ───────────────────────────────── */
+      canvas {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        display: block;
+        border-radius: 8px;
+        border: 1px solid #282840;
+        background: #0a0a0f;
+      }
+
+      .canvas-area {
+        margin-bottom: 1rem;
+      }
+
+      /* ── Info row ────────────────────────────────────── */
+      .info-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+        margin-top: 1rem;
+      }
+
+      .info-box {
+        background: #1a1a2e;
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        border: 1px solid #282840;
+      }
+
+      .info-box .label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #b0b0c8;
+        margin-bottom: 0.35rem;
+      }
+
+      .info-box .value {
+        font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+        font-size: 0.72rem;
+        color: #00e5b9;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+
+      .info-box .hint {
+        font-size: 0.65rem;
+        color: #a0a0b8;
+        margin-top: 0.25rem;
+      }
+
+      /* ── Message log ─────────────────────────────────── */
+      .log-area {
+        margin-top: 1rem;
+      }
+
+      .log-panel {
+        background: #0d0d18;
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        border: 1px solid #1e1e30;
+        max-height: 140px;
+        overflow-y: auto;
+        font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+        font-size: 0.7rem;
+        line-height: 1.7;
+      }
+
+      .log-entry {
+        display: flex;
+        gap: 0.5rem;
+        color: #b0b0c8;
+      }
+
+      .log-entry .log-dir {
+        flex-shrink: 0;
+        font-weight: 700;
+      }
+
+      .log-dir.to-worker {
+        color: #9a7cff;
+      }
+
+      .log-dir.from-worker {
+        color: #00e5b9;
+      }
+
+      .log-entry .log-text {
+        color: #b8b8d0;
+      }
+
+    
+  </script>
+  <template id="demo-body">
+<div class="layout">
+      <div class="demo-panel">
+        <h2>Live Result</h2>
+
+        <!-- Source HTML element to capture. Wrapping it in a
+             <canvas layoutsubtree> means the card is a real, editable
+             DOM element AND lives in a canvas whose bitmap we can
+             transfer to the worker via createImageBitmap(). -->
+        <div class="source-area">
+          <div class="section-label">
+            Source Element
+            <span class="edit-hint">(click to edit, then re-capture)</span>
+          </div>
+          <canvas id="source-canvas" layoutsubtree>
+            <div id="source" contenteditable="true">
+              <div class="source-card">
+                <div class="source-card-icon">&#x1F3A8;</div>
+                <h3>HTML Content</h3>
+                <p>
+                  This DOM element is captured as a transferable
+                  <code>ElementImage</code> and sent to a Web Worker
+                  for off-thread rendering.
+                </p>
+                <div class="source-card-badge">Transferable</div>
+              </div>
+            </div>
+          </canvas>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+          <button id="capture-btn" class="btn-primary">
+            <span class="btn-icon">&#x1F4F8;</span>
+            Capture &amp; Send to Worker
+          </button>
+          <label class="toggle">
+            <input type="checkbox" id="animate-toggle" checked />
+            <span>Animate</span>
+          </label>
+        </div>
+
+        <!-- Worker-rendered canvas -->
+        <div class="canvas-area">
+          <div class="section-label">
+            Worker Output
+            <span class="worker-badge">OffscreenCanvas</span>
+          </div>
+          <canvas
+            id="output"
+            role="img"
+            aria-label="OffscreenCanvas worker output — the tweet card rendered by a separate worker thread"
+          ></canvas>
+        </div>
+
+        <div class="info-row">
+          <div class="info-box">
+            <div class="label">Sync Transform</div>
+            <div class="value" id="transform-display">Waiting...</div>
+            <div class="hint">DOMMatrix sent back from worker</div>
+          </div>
+          <div class="info-box">
+            <div class="label">Worker FPS</div>
+            <div class="value" id="fps-display">&mdash;</div>
+            <div class="hint">Animation in worker thread</div>
+          </div>
+        </div>
+
+        <!-- Message log -->
+        <div class="log-area">
+          <div class="section-label">Message Log</div>
+          <div id="log" class="log-panel"></div>
+        </div>
+      </div>
+
+    </div>
+  </template>
+  <script type="application/json" id="demo-scripts">[{"body":"\n      // Resolve the script's root: a ShadowRoot when mounted via shadow\n      // DOM, or `document` when this file is served standalone.\n      const root = window.__demoRoot ?? document;\n      const $ = (id) => root.getElementById(id);\n\n      /* ── DOM references ────────────────────────────── */\n      const canvas = $(\"output\");\n      const sourceCanvas = $(\"source-canvas\");\n      const source = $(\"source\");\n      const captureBtn = $(\"capture-btn\");\n      const animateToggle = $(\"animate-toggle\");\n      const transformDisplay = $(\"transform-display\");\n      const fpsDisplay = $(\"fps-display\");\n      const logPanel = $(\"log\");\n\n      /* ──────────────────────────────────────────────────\n       * captureElementImage polyfill\n       * ──────────────────────────────────────────────────\n       * The WICG spec proposes `canvas.captureElementImage(element)`\n       * which returns a transferable `ElementImage` that can be\n       * posted to a worker. Chrome Canary doesn't implement it yet.\n       *\n       * Polyfill: the source element already lives inside a\n       * `<canvas layoutsubtree>` in the DOM (see #source-canvas in\n       * the HTML). On capture:\n       *   1. Size the source canvas's bitmap to match the source\n       *      element's natural layout dimensions.\n       *   2. Paint the source element into the canvas via\n       *      drawElementImage.\n       *   3. Call `createImageBitmap(sourceCanvas)` to pull a\n       *      transferable ImageBitmap out of the canvas bitmap.\n       *   4. Post that ImageBitmap to the worker.\n       *\n       * The worker draws the ImageBitmap the same way it would have\n       * drawn an ElementImage — the shape of the API is different\n       * but the semantics are equivalent.\n       */\n      const sourceCtx = sourceCanvas.getContext(\"2d\");\n\n      async function captureElementImage(element) {\n        // Resize the source canvas bitmap to match the source div's\n        // current natural dimensions. We read getBoundingClientRect()\n        // BEFORE mutating canvas.width (which would reset the\n        // layoutsubtree children's layout mid-measurement).\n        const rect = element.getBoundingClientRect();\n        const w = Math.max(1, Math.round(rect.width));\n        const h = Math.max(1, Math.round(rect.height));\n        if (sourceCanvas.width !== w || sourceCanvas.height !== h) {\n          sourceCanvas.width = w;\n          sourceCanvas.height = h;\n        }\n\n        // Paint the element into the canvas bitmap and wait for the\n        // paint cycle to complete before reading pixels.\n        await new Promise((resolve) => {\n          sourceCanvas.onpaint = () => {\n            sourceCtx.clearRect(0, 0, w, h);\n            sourceCtx.drawElementImage(element, 0, 0);\n            resolve();\n          };\n          if (sourceCanvas.requestPaint) sourceCanvas.requestPaint();\n          else resolve();\n        });\n\n        // Pull a transferable ImageBitmap out of the canvas. We go\n        // through toBlob() + createImageBitmap(blob) instead of\n        // createImageBitmap(canvas) because Chrome Canary crashes the\n        // renderer when you pass a <canvas layoutsubtree> element\n        // directly to createImageBitmap. Routing through a Blob adds\n        // a small amount of overhead but produces a valid, safely\n        // transferable ImageBitmap.\n        const blob = await new Promise((resolve, reject) => {\n          sourceCanvas.toBlob((b) => {\n            if (b) resolve(b);\n            else reject(new Error('canvas.toBlob returned null'));\n          }, 'image/png');\n        });\n        return await createImageBitmap(blob);\n      }\n\n      /* ── Message log utility ───────────────────────── */\n      function log(direction, text) {\n        const entry = document.createElement(\"div\");\n        entry.className = \"log-entry\";\n\n        const dir = document.createElement(\"span\");\n        dir.className =\n          \"log-dir \" +\n          (direction === \"to\" ? \"to-worker\" : \"from-worker\");\n        dir.textContent = direction === \"to\" ? \"\\u2192\" : \"\\u2190\";\n\n        const msg = document.createElement(\"span\");\n        msg.className = \"log-text\";\n        msg.textContent = text;\n\n        entry.appendChild(dir);\n        entry.appendChild(msg);\n        logPanel.appendChild(entry);\n        logPanel.scrollTop = logPanel.scrollHeight;\n\n        /* Keep log at a reasonable size */\n        while (logPanel.children.length > 50) {\n          logPanel.removeChild(logPanel.firstChild);\n        }\n      }\n\n      /* ── Worker code (inline Blob) ─────────────────── */\n      const workerSource = [\n        '\"use strict\";',\n        \"\",\n        \"let canvas = null;\",\n        \"let ctx = null;\",\n        \"let currentImage = null;\",\n        \"let dpr = 1;\",\n        \"let angle = 0;\",\n        \"let animating = true;\",\n        \"let frameCount = 0;\",\n        \"let lastFpsTime = 0;\",\n        \"let currentFps = 0;\",\n        \"\",\n        \"self.onmessage = (e) => {\",\n        \"  const msg = e.data;\",\n        \"\",\n        '  if (msg.type === \"init\") {',\n        \"    canvas = msg.canvas;\",\n        \"    dpr = msg.dpr || 1;\",\n        '    ctx = canvas.getContext(\"2d\");',\n        \"    self.postMessage({\",\n        '      type: \"log\",',\n        '      text: \"Worker ready, OffscreenCanvas \" +',\n        '        canvas.width + \"\\\\u00d7\" + canvas.height',\n        \"    });\",\n        \"    tick();\",\n        \"  }\",\n        \"\",\n        '  if (msg.type === \"image\") {',\n        \"    currentImage = msg.image;\",\n        \"    self.postMessage({\",\n        '      type: \"log\",',\n        '      text: \"ElementImage received (\" +',\n        '        currentImage.width + \"\\\\u00d7\" +',\n        '        currentImage.height + \")\"',\n        \"    });\",\n        \"  }\",\n        \"\",\n        '  if (msg.type === \"resize\") {',\n        \"    canvas.width = msg.width;\",\n        \"    canvas.height = msg.height;\",\n        \"    dpr = msg.dpr || dpr;\",\n        \"  }\",\n        \"\",\n        '  if (msg.type === \"animate\") {',\n        \"    animating = msg.value;\",\n        \"  }\",\n        \"};\",\n        \"\",\n        \"/* Draw a subtle dot grid */\",\n        \"function drawGrid(w, h) {\",\n        '  ctx.fillStyle = \"#1a1a2e\";',\n        \"  const step = 24 * dpr;\",\n        \"  for (let gx = step; gx < w; gx += step) {\",\n        \"    for (let gy = step; gy < h; gy += step) {\",\n        \"      ctx.beginPath();\",\n        \"      ctx.arc(gx, gy, dpr, 0, Math.PI * 2);\",\n        \"      ctx.fill();\",\n        \"    }\",\n        \"  }\",\n        \"}\",\n        \"\",\n        \"function tick() {\",\n        \"  if (!ctx) { requestAnimationFrame(tick); return; }\",\n        \"\",\n        \"  const w = canvas.width;\",\n        \"  const h = canvas.height;\",\n        \"\",\n        \"  /* Clear and draw background */\",\n        '  ctx.fillStyle = \"#0d0d18\";',\n        \"  ctx.fillRect(0, 0, w, h);\",\n        \"  drawGrid(w, h);\",\n        \"\",\n        \"  if (currentImage) {\",\n        \"    const iw = currentImage.width;\",\n        \"    const ih = currentImage.height;\",\n        \"\",\n        \"    /* Scale to fit nicely in the canvas */\",\n        \"    const fitScale = Math.min(\",\n        \"      (w * 0.45) / iw,\",\n        \"      (h * 0.45) / ih\",\n        \"    );\",\n        \"\",\n        \"    if (animating) angle += 0.006;\",\n        \"\",\n        \"    /* Draw main centered copy with rotation */\",\n        \"    ctx.save();\",\n        \"    ctx.translate(w / 2, h / 2);\",\n        \"    ctx.rotate(angle);\",\n        \"    ctx.scale(fitScale, fitScale);\",\n        \"\",\n        \"    /* Drop shadow */\",\n        '    ctx.shadowColor = \"rgba(108, 65, 240, 0.3)\";',\n        \"    ctx.shadowBlur = 24 * dpr;\",\n        \"    ctx.shadowOffsetX = 0;\",\n        \"    ctx.shadowOffsetY = 4 * dpr;\",\n        \"    ctx.drawImage(currentImage, -iw / 2, -ih / 2);\",\n        \"\",\n        \"    const transform = ctx.getTransform();\",\n        \"    ctx.restore();\",\n        \"\",\n        \"    /* Draw 4 smaller orbiting ghost copies */\",\n        \"    const orbitRadius = Math.min(w, h) * 0.33;\",\n        \"    for (let i = 0; i < 4; i++) {\",\n        \"      const orbitAngle = angle * 1.5 + (i * Math.PI / 2);\",\n        \"      const ox = w / 2 + Math.cos(orbitAngle) * orbitRadius;\",\n        \"      const oy = h / 2 + Math.sin(orbitAngle) * orbitRadius;\",\n        \"      const ghostScale = fitScale * 0.35;\",\n        \"\",\n        \"      ctx.save();\",\n        \"      ctx.globalAlpha = 0.25;\",\n        \"      ctx.translate(ox, oy);\",\n        \"      ctx.rotate(orbitAngle + Math.PI / 6);\",\n        \"      ctx.scale(ghostScale, ghostScale);\",\n        \"      ctx.drawImage(currentImage, -iw / 2, -ih / 2);\",\n        \"      ctx.restore();\",\n        \"    }\",\n        \"\",\n        \"    /* Send transform back for accessibility sync */\",\n        \"    self.postMessage({\",\n        '      type: \"transform\",',\n        \"      matrix: {\",\n        \"        a: transform.a, b: transform.b,\",\n        \"        c: transform.c, d: transform.d,\",\n        \"        e: transform.e, f: transform.f\",\n        \"      }\",\n        \"    });\",\n        \"  } else {\",\n        \"    /* Waiting state */\",\n        '    ctx.fillStyle = \"#4a4a60\";',\n        \"    ctx.font = (14 * dpr) + \" +\n          '\"px system-ui, -apple-system, sans-serif\";',\n        '    ctx.textAlign = \"center\";',\n        '    ctx.fillText(\"Waiting for ElementImage\\\\u2026\",',\n        \"      w / 2, h / 2 - 8 * dpr);\",\n        '    ctx.fillStyle = \"#3a3a50\";',\n        \"    ctx.font = (12 * dpr) + \" +\n          '\"px system-ui, -apple-system, sans-serif\";',\n        '    ctx.fillText(\"Click \\\\u201cCapture & Send\\\\u201d above\",',\n        \"      w / 2, h / 2 + 16 * dpr);\",\n        \"  }\",\n        \"\",\n        \"  /* FPS counter */\",\n        \"  frameCount++;\",\n        \"  const now = performance.now();\",\n        \"  if (now - lastFpsTime >= 1000) {\",\n        \"    currentFps = frameCount;\",\n        \"    frameCount = 0;\",\n        \"    lastFpsTime = now;\",\n        \"    self.postMessage({\",\n        '      type: \"fps\",',\n        \"      value: currentFps\",\n        \"    });\",\n        \"  }\",\n        \"\",\n        \"  /* Draw FPS in corner */\",\n        '  ctx.fillStyle = \"#3a3a50\";',\n        '  ctx.font = (11 * dpr) + \"px monospace\";',\n        '  ctx.textAlign = \"left\";',\n        \"  ctx.fillText(currentFps + \" +\n          '\" fps\", 8 * dpr, 16 * dpr);',\n        \"\",\n        \"  requestAnimationFrame(tick);\",\n        \"}\",\n      ].join(\"\\n\");\n\n      const workerBlob = new Blob([workerSource], {\n        type: \"application/javascript\",\n      });\n      const workerURL = URL.createObjectURL(workerBlob);\n\n      /* ── Create worker + transfer OffscreenCanvas ──── */\n      const offscreen = canvas.transferControlToOffscreen();\n      const worker = new Worker(workerURL);\n\n      /* Set initial canvas size before transfer */\n      const dp = devicePixelRatio;\n      const rect = canvas.getBoundingClientRect();\n      offscreen.width = Math.round(rect.width * dp);\n      offscreen.height = Math.round(rect.height * dp);\n\n      worker.postMessage(\n        { type: \"init\", canvas: offscreen, dpr: dp },\n        [offscreen],\n      );\n\n      log(\"to\", \"init: OffscreenCanvas \" +\n        offscreen.width + \"\\u00d7\" + offscreen.height +\n        \" (transferred)\");\n\n      /* ── Resize handling ───────────────────────────── */\n      new ResizeObserver(([entry]) => {\n        const { width, height } = entry.contentRect;\n        const pw = Math.round(width * dp);\n        const ph = Math.round(height * dp);\n        worker.postMessage({\n          type: \"resize\",\n          width: pw,\n          height: ph,\n          dpr: dp,\n        });\n      }).observe(canvas);\n\n      /* ── Capture & send ────────────────────────────── */\n      captureBtn.addEventListener(\"click\", async () => {\n        captureBtn.disabled = true;\n        captureBtn.textContent = \"Capturing\\u2026\";\n\n        try {\n          const t0 = performance.now();\n          const image = await captureElementImage(source);\n          const captureMs = (performance.now() - t0).toFixed(1);\n\n          log(\n            \"to\",\n            \"image: ElementImage \" +\n              image.width + \"\\u00d7\" + image.height +\n              \" (captured in \" + captureMs + \"ms, transferring\\u2026)\",\n          );\n\n          worker.postMessage(\n            { type: \"image\", image: image },\n            [image],\n          );\n\n          log(\"to\", \"image transferred (zero-copy)\");\n        } catch (err) {\n          log(\"to\", \"ERROR: \" + err.message);\n        }\n\n        captureBtn.disabled = false;\n        captureBtn.innerHTML =\n          '<span class=\"btn-icon\">&#x1F4F8;<\/span> ' +\n          \"Capture &amp; Send to Worker\";\n      });\n\n      /* ── Animate toggle ────────────────────────────── */\n      animateToggle.addEventListener(\"change\", () => {\n        const val = animateToggle.checked;\n        worker.postMessage({ type: \"animate\", value: val });\n        log(\"to\", \"animate: \" + val);\n      });\n\n      /* ── Auto-run the first capture after the worker boots ──\n       * The demo is self-demoing: the visitor arrives and sees the\n       * worker thread already rendering the captured element image\n       * with the rotating animation running. They can then click\n       * Capture again to re-send a snapshot after editing the\n       * source element. A 700ms delay lets the demo fonts load and\n       * the captureElementImage first paint cycle settle before we\n       * transfer the image into the worker.\n       */\n      setTimeout(() => {\n        // Honor the default `checked` state of the animate toggle\n        // by posting the initial animate message before the first\n        // capture, so the worker's render loop is already running\n        // when the image arrives.\n        worker.postMessage({\n          type: \"animate\",\n          value: animateToggle.checked,\n        });\n        captureBtn.click();\n      }, 700);\n\n      /* ── Receive messages from worker ──────────────── */\n      let transformThrottle = 0;\n\n      worker.onmessage = (e) => {\n        const msg = e.data;\n\n        if (msg.type === \"transform\") {\n          const m = msg.matrix;\n          const formatted =\n            \"matrix(\" +\n            m.a.toFixed(3) + \", \" + m.b.toFixed(3) + \",\\n\" +\n            \"       \" +\n            m.c.toFixed(3) + \", \" + m.d.toFixed(3) + \",\\n\" +\n            \"       \" +\n            m.e.toFixed(1) + \", \" + m.f.toFixed(1) + \")\";\n          transformDisplay.textContent = formatted;\n\n          /*\n           * Log transform updates at most once per second\n           * to avoid flooding the log.\n           */\n          const now = Date.now();\n          if (now - transformThrottle > 2000) {\n            transformThrottle = now;\n            log(\n              \"from\",\n              \"transform: a=\" + m.a.toFixed(3) +\n                \" b=\" + m.b.toFixed(3) +\n                \" e=\" + m.e.toFixed(1) +\n                \" f=\" + m.f.toFixed(1),\n            );\n          }\n        }\n\n        if (msg.type === \"fps\") {\n          fpsDisplay.textContent = msg.value + \" fps\";\n        }\n\n        if (msg.type === \"log\") {\n          log(\"from\", msg.text);\n        }\n      };\n\n      /* ── Cleanup ───────────────────────────────────── */\n      window.addEventListener(\"unload\", () => {\n        worker.terminate();\n        URL.revokeObjectURL(workerURL);\n      });\n    "}]</script>
+
+  <script src="../assets/sidebar.js" defer></script>
+  <script src="../assets/support-check.js" defer></script>
+  <script src="../assets/code-pane.js" defer></script>
+  <script src="../assets/demo-embed.js" defer></script>
+</body>
+</html>

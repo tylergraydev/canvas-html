@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Elastic bulge — HTML in Canvas</title>
+  <meta name="description" content="A mouse-driven WebGL2 shader warps laid-out HTML with a radial bulge and soft drop-shadow." />
+  <link rel="stylesheet" href="../assets/styles.css" />
+  <link rel="stylesheet" href="../assets/example.css" />
+  <style>
+    /* The demo is mounted in a shadow root on #demo-host, so its own
+       page CSS is fully isolated from this chrome. We only size the host. */
+    .demo-host { position: relative; width: 100%; height: 72vh; min-height: 480px; overflow: auto; }
+    .demo-attrib { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+    .demo-attrib a { color: var(--accent-2); }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="app">
+    <div id="sidebar-slot" data-base="../"></div>
+    <main id="main" class="content">
+      <header class="example__header">
+        <div>
+          <a class="example__back" href="../index.html">← All examples</a>
+          <p class="example__meta">html-in-canvas.dev · WebGL</p>
+          <h1 class="example__title">Elastic bulge</h1>
+          <p class="example__intro">A mouse-driven WebGL2 shader warps laid-out HTML with a radial bulge and soft drop-shadow.</p>
+        </div>
+      </header>
+      <section class="stage" aria-label="Demo stage">
+        <div class="demo-host" id="demo-host"></div>
+      </section>
+      <section class="callout" style="margin-top:22px">
+        <h3>About this demo</h3>
+        <p class="demo-attrib">
+          Vendored verbatim from <a href="https://html-in-canvas.dev/demos/elastic-bulge/" target="_blank" rel="noopener">html-in-canvas.dev</a>
+          (by En Dash Consulting, MIT-licensed — see <code>demos/UPSTREAM-LICENSE.txt</code>), then mounted in
+          a shadow root inside this page so it runs unmodified. View the
+          <a href="https://github.com/en-dash-consulting/html-in-canvas-dot-dev/tree/main/src/content/demos/elastic-bulge" target="_blank" rel="noopener">original source</a>.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Inlined demo source: mounted into the shadow root by demo-embed.js -->
+  <script type="text/plain" id="demo-styles">
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html {
+        height: 100%;
+      }
+
+      body,
+      :host {
+        display: grid;
+        place-items: center;
+        margin: 0;
+        min-height: 100%;
+        background: #111;
+        color: #eee;
+        font-family: system-ui, sans-serif;
+      }
+
+      canvas {
+        background-color: #555;
+        border: 1px solid #333;
+        max-width: 100%;
+      }
+
+      #content {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        place-items: center;
+        perspective: 800px;
+      }
+
+      .frame {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1em;
+        width: min(90%, 360px);
+        padding: 1em;
+        border: 4px solid #aaa;
+        background: #0001;
+        border-radius: 1em;
+        transform: rotateX(45deg) rotateZ(-45deg);
+      }
+
+      h1 {
+        text-align: center;
+        text-wrap: balance;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.5em;
+        width: 100%;
+      }
+
+      .item {
+        display: grid;
+        place-items: center;
+        width: 100%;
+        aspect-ratio: 1;
+        font-weight: bold;
+        border: 4px solid #aaa;
+        border-radius: 0.5em;
+      }
+    
+  </script>
+  <template id="demo-body">
+<canvas id="canvas" width="800" height="600" layoutsubtree>
+      <div id="content">
+        <div class="frame">
+          <h1>Hello from HTML-in-Canvas!</h1>
+          <div class="grid">
+            <div class="item">A</div>
+            <div class="item">B</div>
+            <div class="item">C</div>
+            <div class="item">D</div>
+            <div class="item">E</div>
+            <div class="item">F</div>
+            <div class="item">G</div>
+            <div class="item">H</div>
+          </div>
+        </div>
+      </div>
+    </canvas>
+  </template>
+  <script type="application/json" id="demo-scripts">[{"body":"\n      const root = window.__demoRoot ?? document;\n\n      const canvas = root.getElementById(\"canvas\");\n      const gl = canvas.getContext(\"webgl2\", { premultipliedAlpha: false });\n      const content = root.getElementById(\"content\");\n\n      if (!gl || !gl.texElementImage2D) {\n        console.warn(\"elastic-bulge: WebGL2 HTML-in-Canvas API not supported.\");\n      }\n\n      const radius = parseFloat(canvas.getAttribute(\"data-radius\")) || 100;\n      const strength = parseFloat(canvas.getAttribute(\"data-strength\")) || 1;\n      const blur = parseFloat(canvas.getAttribute(\"data-blur\")) || 5;\n\n      // ----- Shaders -----\n      const vsSource = `\n        attribute vec2 p; varying vec2 v;\n        void main() { v = vec2(p.x, -p.y) * 0.5 + 0.5; gl_Position = vec4(p, 0, 1); }\n      `;\n      const fsSource = `\n        precision mediump float;\n        varying vec2 v;\n        uniform sampler2D u;\n        uniform vec2 uMouse;\n        uniform vec2 uResolution;\n        uniform float uRadius;\n        uniform float uStrength;\n        uniform float uBlur;\n\n        void main() {\n          vec2 uv = v;\n          vec2 fragPx = v * uResolution;\n          vec2 mousePx = uMouse * uResolution;\n          float dist = length(fragPx - mousePx);\n\n          // Displacement\n          if (dist < uRadius) {\n            float yOffset = fragPx.y - mousePx.y;\n            float position = uRadius - yOffset;\n            float displacement = (1.0 - (dist / uRadius) * (dist / uRadius)) * position * 0.5 * uStrength;\n            uv.y += displacement / uResolution.y;\n          }\n\n          vec4 col = texture2D(u, clamp(uv, 0.0, 1.0));\n\n          // Shadow layer: blurred original-content alpha\n          float shadowAlpha = 0.0;\n          if (dist < uRadius * 1.5) {\n            float t = dist / (uRadius * 1.5);\n            float blurPx = (1.0 - t) * uBlur;\n            float texelW = 1.0 / uResolution.x;\n            float texelH = 1.0 / uResolution.y;\n            float sum = 0.0;\n            float weight = 0.0;\n            for (float ox = -3.0; ox <= 3.0; ox += 1.0) {\n              for (float oy = -3.0; oy <= 3.0; oy += 1.0) {\n                vec2 off = vec2(ox * texelW * blurPx, oy * texelH * blurPx);\n                float w = exp(-(ox*ox + oy*oy) / 8.0);\n                sum += texture2D(u, v + off).a * w;\n                weight += w;\n              }\n            }\n            shadowAlpha = (sum / weight) * (1.0 - t);\n          }\n\n          // Composite: displaced content over shadow\n          float outA = col.a + shadowAlpha * (1.0 - col.a);\n          vec3 outRGB = outA > 0.0 ? col.rgb * col.a / outA : vec3(0.0);\n          gl_FragColor = vec4(outRGB, outA);\n        }\n      `;\n\n      // ----- Compile & link -----\n      const program = gl.createProgram();\n      [vsSource, fsSource].forEach((src, i) => {\n        const s = gl.createShader(i ? gl.FRAGMENT_SHADER : gl.VERTEX_SHADER);\n        gl.shaderSource(s, src);\n        gl.compileShader(s);\n        gl.attachShader(program, s);\n      });\n      gl.linkProgram(program);\n      gl.useProgram(program);\n\n      // ----- Geometry -----\n      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());\n      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);\n      const pos = gl.getAttribLocation(program, \"p\");\n      gl.enableVertexAttribArray(pos);\n      gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);\n\n      // ----- Texture -----\n      gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());\n      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);\n\n      const mouseLoc    = gl.getUniformLocation(program, \"uMouse\");\n      const resLoc      = gl.getUniformLocation(program, \"uResolution\");\n      const radiusLoc   = gl.getUniformLocation(program, \"uRadius\");\n      const strengthLoc = gl.getUniformLocation(program, \"uStrength\");\n      const blurLoc     = gl.getUniformLocation(program, \"uBlur\");\n\n      // ----- Pointer tracking -----\n      let mouseX = -1, mouseY = -1;\n\n      canvas.addEventListener(\"pointermove\", (e) => {\n        const r = canvas.getBoundingClientRect();\n        mouseX = (e.clientX - r.left) / r.width;\n        mouseY = (e.clientY - r.top) / r.height;\n        canvas.requestPaint();\n      });\n\n      canvas.addEventListener(\"pointerleave\", () => {\n        mouseX = -1;\n        mouseY = -1;\n        canvas.requestPaint();\n      });\n\n      // ----- Render -----\n      function render() {\n        // This if block is used to ensure older browser support before the \n        // breaking  update in Chromium 150. For more detail, see:\n        // https://github.com/WICG/html-in-canvas/pull/128/changes\n        if (gl.texElementImage2D.length === 3) {\n          gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, content);\n        } else {\n          gl.texElementImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, content);\n        }\n        gl.uniform2f(mouseLoc, mouseX, mouseY);\n        gl.uniform2f(resLoc, canvas.width, canvas.height);\n        gl.uniform1f(radiusLoc, radius);\n        gl.uniform1f(strengthLoc, strength);\n        gl.uniform1f(blurLoc, blur);\n        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);\n      }\n\n      canvas.addEventListener(\"paint\", () => requestAnimationFrame(render));\n      canvas.requestPaint();\n\n      // ----- Resize -----\n      const ro = new ResizeObserver(([entry]) => {\n        canvas.width = entry.devicePixelContentBoxSize[0].inlineSize;\n        canvas.height = entry.devicePixelContentBoxSize[0].blockSize;\n        gl.viewport(0, 0, canvas.width, canvas.height);\n      });\n      ro.observe(canvas, { box: \"device-pixel-content-box\" });\n    "}]</script>
+
+  <script src="../assets/sidebar.js" defer></script>
+  <script src="../assets/support-check.js" defer></script>
+  <script src="../assets/code-pane.js" defer></script>
+  <script src="../assets/demo-embed.js" defer></script>
+</body>
+</html>

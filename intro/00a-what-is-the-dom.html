@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>What is the DOM? — HTML in Canvas</title>
+    <meta name="description" content="A plain-English primer on the DOM: the live tree of objects the browser builds from your HTML — shown three ways: the HTML you write, what it renders to, and the tree it becomes." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      /* Two-column prose, matching the other concept pages */
+      .concept {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 10px 40px;
+        margin-bottom: 22px;
+      }
+      .prose h2 { font-size: 18px; margin: 0 0 8px; letter-spacing: -.01em; }
+      .prose p { color: var(--text-dim); line-height: 1.6; margin: 0 0 14px; max-width: 60ch; }
+      .prose .lead { color: var(--text); font-size: 16px; }
+      .prose code { font-size: .92em; }
+
+      /* The write → render → tree trio */
+      .trio {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        align-items: stretch;
+      }
+      @media (max-width: 1040px) { .trio { grid-template-columns: 1fr; } }
+
+      .panelc {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-elev);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .panelc__head {
+        display: flex; align-items: center; gap: 9px;
+        padding: 11px 14px; border-bottom: 1px solid var(--border);
+      }
+      .panelc__n {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px; padding: 2px 8px; border-radius: 999px;
+        background: rgba(124,92,255,.16); color: #c4b5fd; border: 1px solid rgba(124,92,255,.4);
+      }
+      .panelc__head h3 { margin: 0; font-size: 13px; }
+      .panelc__head p { margin: 1px 0 0; font-size: 11.5px; color: var(--text-mute); }
+      .panelc__body { padding: 16px; flex: 1; }
+
+      /* Panel 1 — the source code */
+      .src-wrap { background: #07090d; border-radius: 10px; padding: 12px 0; overflow-x: auto; height: 100%; }
+
+      /* Panel 2 — the rendered result (a tiny real page) */
+      .render { display: grid; place-items: center; padding: 8px; }
+      .sample {
+        width: 100%; max-width: 230px;
+        padding: 18px; border-radius: 14px;
+        background: linear-gradient(180deg, #1b2030, #11141c);
+        border: 1px solid #2a3243; color: var(--text);
+        display: flex; flex-direction: column; gap: 12px;
+        box-shadow: 0 16px 36px -22px rgba(0,0,0,.8);
+      }
+      .sample h2 { margin: 0; font-size: 18px; letter-spacing: -.01em; }
+      .sample p { margin: 0; font-size: 13.5px; color: var(--text-dim); line-height: 1.5; }
+      .sample em { color: var(--accent-2); font-style: normal; }
+      .sample button {
+        align-self: flex-start;
+        padding: 8px 14px; border-radius: 8px; cursor: pointer;
+        border: 1px solid var(--border-strong); background: var(--bg-elev-2);
+        color: var(--text); font: inherit; font-size: 13px;
+      }
+      .sample button:hover { background: var(--bg); border-color: var(--accent); }
+
+      /* Highlight link between the render and the tree */
+      [data-node].is-hot { outline: 2px solid var(--accent-2); outline-offset: 3px; border-radius: 6px; }
+
+      /* Panel 3 — the node tree */
+      .domtree { list-style: none; margin: 0; padding: 0; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12.5px; }
+      .domtree ul { list-style: none; margin: 0; padding-left: 18px; border-left: 1px solid var(--border); }
+      .domtree li { margin: 2px 0; }
+      .node-row {
+        display: inline-flex; align-items: baseline; gap: 7px;
+        padding: 3px 8px; border-radius: 7px; cursor: default;
+        border: 1px solid transparent;
+      }
+      .node-row.is-hot { background: rgba(34,211,238,.14); border-color: rgba(34,211,238,.4); }
+      .node-tag { color: #7dd3fc; }
+      .node-meta { color: #c4b5fd; }
+      .node-text { color: var(--text-mute); font-style: italic; }
+      .node-kind { color: var(--text-mute); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
+
+      .next { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+      .flow { display: flex; align-items: center; gap: 10px; margin: 4px 0 24px; flex-wrap: wrap; color: var(--text-mute); font-size: 13px; }
+      .flow b { color: var(--text); font-weight: 600; }
+      .flow .arr { color: var(--accent); }
+    </style>
+  </head>
+  <body data-wide>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Primer · Start before the concepts</p>
+            <h1 class="example__title">What is the DOM?</h1>
+            <p class="example__intro">
+              When the browser reads your HTML, it doesn't keep the text — it builds a
+              <strong>tree of live objects</strong> from it, one object per tag. That tree is the
+              <strong>DOM</strong> (Document Object Model). It's what you see on screen, what your
+              JavaScript pokes at, and what a screen reader walks. Here's the same tiny page shown
+              three ways: <em>the HTML you write</em>, <em>what it renders to</em>, and
+              <em>the tree the browser actually builds</em>.
+            </p>
+          </div>
+        </header>
+
+        <section class="concept">
+          <div class="prose">
+            <h2>It's a tree of nodes</h2>
+            <p class="lead">Every tag becomes a node; nesting becomes parent/child.</p>
+            <p>An <code>&lt;article&gt;</code> with a heading and a button inside it becomes an
+              <code>article</code> node with a <code>h2</code> child and a <code>button</code> child.
+              Text is a node too. The browser keeps this structure in memory and paints the screen
+              from it.</p>
+          </div>
+          <div class="prose">
+            <h2>It's live, not a photo</h2>
+            <p>The DOM isn't a snapshot — it's the running state of the page. Click the button below
+              and its node's text changes; the screen updates because the DOM changed. Inputs hold
+              focus, text is selectable, and assistive tech reads the roles and labels off these very
+              nodes.</p>
+            <p>Keep this in mind for the next primer: a <code>&lt;canvas&gt;</code> is the
+              <em>opposite</em> — no tree, no nodes, just a flat grid of pixels.</p>
+          </div>
+        </section>
+
+        <p class="flow">
+          <b>You write HTML</b> <span class="arr">→</span> <b>the browser builds the DOM tree</b>
+          <span class="arr">→</span> <b>it paints the screen &amp; routes events</b>
+        </p>
+
+        <section class="trio" aria-label="The same page, three ways">
+          <!-- 1 — the source -->
+          <div class="panelc">
+            <div class="panelc__head">
+              <span class="panelc__n">1</span>
+              <div><h3>The HTML you write</h3><p>plain text, in a file</p></div>
+            </div>
+            <div class="panelc__body">
+              <div class="src-wrap">
+                <pre class="code-pane__pre" data-code-html="domsample"></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2 — the rendered result -->
+          <div class="panelc">
+            <div class="panelc__head">
+              <span class="panelc__n">2</span>
+              <div><h3>What the browser shows</h3><p>real, live, interactive</p></div>
+            </div>
+            <div class="panelc__body render">
+              <article class="sample" id="sample">
+                <h2>Aurora</h2>
+                <p>A tiny page, built from <em>nodes</em>.</p>
+                <button type="button" id="like">Liked 0×</button>
+              </article>
+            </div>
+          </div>
+
+          <!-- 3 — the tree -->
+          <div class="panelc">
+            <div class="panelc__head">
+              <span class="panelc__n">3</span>
+              <div><h3>The tree it builds</h3><p>hover a node to find it →</p></div>
+            </div>
+            <div class="panelc__body">
+              <ul class="domtree" id="tree"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="callout" style="margin-top:30px">
+          <h3>Why this matters here</h3>
+          <p>
+            The whole point of this playground is that a <code>&lt;canvas&gt;</code> can now
+            <em>paint</em> a piece of this live DOM tree while keeping it a real, interactive,
+            accessible node. So before we mix them, it's worth being clear on the two halves: the DOM
+            (this page) is the rich, live, accessible tree — and the canvas (next) is the fast, dumb
+            pixel grid. HTML-in-Canvas is what happens when you get both at once.
+          </p>
+        </section>
+
+        <section class="callout" style="margin-top:22px; border-style: solid; border-color: rgba(124,92,255,.35);">
+          <h3>Next</h3>
+          <p>Now meet the other half — the blank pixel surface.</p>
+          <div class="next">
+            <a class="btn btn--primary" href="./00b-what-is-the-canvas.html">What is a canvas? →</a>
+            <a class="btn btn--ghost" href="./01-what-is-this.html">Skip to: HTML in Canvas →</a>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <!-- Capture the authored markup before any script touches it. -->
+    <script>(window.__markup ||= {}).domsample = document.getElementById('sample').outerHTML;</script>
+    <script id="dom-js">
+      (() => {
+        const sample = document.getElementById('sample');
+        const tree   = document.getElementById('tree');
+        const like   = document.getElementById('like');
+
+        // "It's live": clicking mutates the button node's text, and the
+        // screen updates because the DOM changed — no redraw code needed.
+        let likes = 0;
+        like.addEventListener('click', () => { likes++; like.textContent = `Liked ${likes}×`; });
+
+        // ── Build the tree view by walking the live DOM ─────────────────
+        // This is the key teaching point: the panel on the right is generated
+        // FROM the rendered element on the left — they are the same tree.
+        let uid = 0;
+        const rows = [];   // { key, el, row }
+
+        function label(el) {
+          const tag = el.tagName.toLowerCase();
+          const bits = [`<span class="node-tag">${tag}</span>`];
+          if (el.id) bits.push(`<span class="node-meta">#${el.id}</span>`);
+          // A short text preview for leaf-ish nodes
+          const direct = [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join(' ').trim();
+          if (direct) bits.push(`<span class="node-text">“${direct.slice(0, 22)}”</span>`);
+          return bits.join(' ');
+        }
+
+        function walk(el, into) {
+          const key = `n${uid++}`;
+          el.dataset.node = key;
+
+          const li = document.createElement('li');
+          const row = document.createElement('span');
+          row.className = 'node-row';
+          row.dataset.node = key;
+          row.innerHTML = label(el);
+          li.append(row);
+
+          if (el.children.length) {
+            const ul = document.createElement('ul');
+            for (const child of el.children) walk(child, ul);
+            li.append(ul);
+          }
+          into.append(li);
+          rows.push({ key, el, row });
+        }
+        walk(sample, tree);
+
+        // ── Cross-highlight: tree ⇄ rendered element ────────────────────
+        const setHot = (key, on) => {
+          for (const r of rows) {
+            if (r.key !== key) continue;
+            r.row.classList.toggle('is-hot', on);
+            r.el.classList.toggle('is-hot', on);
+          }
+        };
+        const wire = (node) => {
+          node.addEventListener('pointerenter', (e) => {
+            const t = e.target.closest('[data-node]');
+            if (t) setHot(t.dataset.node, true);
+          }, true);
+          node.addEventListener('pointerleave', (e) => {
+            const t = e.target.closest('[data-node]');
+            if (t) setHot(t.dataset.node, false);
+          }, true);
+        };
+        // Hover the tree rows…
+        for (const r of rows) {
+          r.row.addEventListener('pointerenter', () => setHot(r.key, true));
+          r.row.addEventListener('pointerleave', () => setHot(r.key, false));
+        }
+        // …or hover the rendered nodes themselves.
+        sample.querySelectorAll('[data-node]').forEach((el) => {
+          el.addEventListener('pointerenter', (e) => { e.stopPropagation(); setHot(el.dataset.node, true); });
+          el.addEventListener('pointerleave', (e) => { e.stopPropagation(); setHot(el.dataset.node, false); });
+        });
+        sample.addEventListener('pointerenter', () => setHot(sample.dataset.node, true));
+        sample.addEventListener('pointerleave', () => setHot(sample.dataset.node, false));
+      })();
+    </script>
+    <script src="../assets/code-pane.js" defer></script>
+  </body>
+</html>

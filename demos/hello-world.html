@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hello world — HTML in Canvas</title>
+  <meta name="description" content="The simplest HTML-in-Canvas demo — a styled div drawn into a canvas with drawElementImage()." />
+  <link rel="stylesheet" href="../assets/styles.css" />
+  <link rel="stylesheet" href="../assets/example.css" />
+  <style>
+    /* The demo is mounted in a shadow root on #demo-host, so its own
+       page CSS is fully isolated from this chrome. We only size the host. */
+    .demo-host { position: relative; width: 100%; height: 72vh; min-height: 480px; overflow: auto; }
+    .demo-attrib { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+    .demo-attrib a { color: var(--accent-2); }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="app">
+    <div id="sidebar-slot" data-base="../"></div>
+    <main id="main" class="content">
+      <header class="example__header">
+        <div>
+          <a class="example__back" href="../index.html">← All examples</a>
+          <p class="example__meta">html-in-canvas.dev · 2D</p>
+          <h1 class="example__title">Hello world</h1>
+          <p class="example__intro">The simplest HTML-in-Canvas demo — a styled div drawn into a canvas with drawElementImage().</p>
+        </div>
+      </header>
+      <section class="stage" aria-label="Demo stage">
+        <div class="demo-host" id="demo-host"></div>
+      </section>
+      <section class="callout" style="margin-top:22px">
+        <h3>About this demo</h3>
+        <p class="demo-attrib">
+          Vendored verbatim from <a href="https://html-in-canvas.dev/demos/hello-world/" target="_blank" rel="noopener">html-in-canvas.dev</a>
+          (by En Dash Consulting, MIT-licensed — see <code>demos/UPSTREAM-LICENSE.txt</code>), then mounted in
+          a shadow root inside this page so it runs unmodified. View the
+          <a href="https://github.com/en-dash-consulting/html-in-canvas-dot-dev/tree/main/src/content/demos/hello-world" target="_blank" rel="noopener">original source</a>.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Inlined demo source: mounted into the shadow root by demo-embed.js -->
+  <script type="text/plain" id="demo-styles">
+
+      /*
+       * This file is authored to work in two contexts:
+       *  1. As a standalone HTML page (served at /demos/hello-world/demo.html)
+       *  2. Mounted inside a shadow root on the wrapped /demos/hello-world/ page
+       *
+       * The `body, :host` selector list targets whichever root element
+       * exists in the current context. :host only matches inside a shadow
+       * root; body only matches in a regular document.
+       */
+      html {
+        height: 100%;
+      }
+
+      body,
+      :host {
+        display: block;
+        position: relative;
+        width: 100%;
+        min-height: min(78vh, 820px);
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background:
+          radial-gradient(
+            ellipse at top left,
+            rgba(108, 65, 240, 0.18),
+            transparent 55%
+          ),
+          radial-gradient(
+            ellipse at bottom right,
+            rgba(0, 229, 185, 0.15),
+            transparent 55%
+          ),
+          #07070d;
+        color: #f0f0f0;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      /* The canvas fills the entire stage */
+      #canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      /*
+       * The single DOM element drawn into the canvas. It is a real,
+       * accessible heading the user can edit and select. Its CSS
+       * transform is rewritten every frame to match the painted hero
+       * position, so character-level text selection lines up with the
+       * pixels on screen.
+       */
+      #content {
+        position: absolute;
+        left: 0;
+        top: 0;
+        padding: 1rem 2.25rem;
+        font-size: clamp(2.25rem, 5.5vw, 4.25rem);
+        font-weight: 800;
+        letter-spacing: -0.025em;
+        background: linear-gradient(
+          135deg,
+          #6c41f0 0%,
+          #d52e66 45%,
+          #ff5926 70%,
+          #00e5b9 100%
+        );
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1.05;
+        white-space: nowrap;
+        /* Disable transitions so the per-frame transform updates feel
+           instantaneous instead of lagging behind the canvas paint. */
+        transition: none;
+        transform-origin: 0 0;
+      }
+
+      /* Floating control bar */
+      .controls {
+        position: absolute;
+        left: 50%;
+        bottom: 1.5rem;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.65rem 0.85rem;
+        background: rgba(15, 15, 22, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.6);
+        z-index: 2;
+      }
+
+      .controls input[type="text"] {
+        width: clamp(12rem, 30vw, 22rem);
+        padding: 0.5rem 0.85rem;
+        font-family: inherit;
+        font-size: 0.9rem;
+        color: #f0f0f0;
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+      }
+
+      .controls input[type="text"]:focus {
+        outline: none;
+        border-color: rgba(108, 65, 240, 0.6);
+        box-shadow: 0 0 0 3px rgba(108, 65, 240, 0.2);
+      }
+
+      .controls .divider {
+        width: 1px;
+        height: 1.5rem;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .controls label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.75rem;
+        color: #8a8aa0;
+        white-space: nowrap;
+      }
+
+      .controls input[type="range"] {
+        width: 6rem;
+        accent-color: #9a7cff;
+      }
+
+      .badge {
+        position: absolute;
+        top: 1.25rem;
+        left: 1.25rem;
+        padding: 0.4rem 0.7rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #a0a0b8;
+        background: rgba(15, 15, 22, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        backdrop-filter: blur(8px);
+        z-index: 2;
+      }
+
+      .badge strong {
+        color: #00e5b9;
+        font-weight: 700;
+      }
+    
+  </script>
+  <template id="demo-body">
+<canvas id="canvas" layoutsubtree>
+      <div id="content">Hello, Canvas!</div>
+    </canvas>
+
+    <div class="badge">
+      <span id="copy-count">12</span> paintings &middot; <strong>1</strong> DOM element
+    </div>
+
+    <div class="controls">
+      <input
+        id="text-input"
+        type="text"
+        value="Hello, Canvas!"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Text drawn into canvas"
+      />
+      <span class="divider"></span>
+      <label>
+        Copies
+        <input
+          id="copies-input"
+          type="range"
+          min="1"
+          max="32"
+          value="12"
+        />
+      </label>
+      <label>
+        Speed
+        <input
+          id="speed-input"
+          type="range"
+          min="0"
+          max="200"
+          value="100"
+        />
+      </label>
+    </div>
+  </template>
+  <script type="application/json" id="demo-scripts">[{"body":"\n      // Resolve the script's root: a ShadowRoot when mounted via shadow DOM,\n      // or `document` when this file is served standalone. Both expose the\n      // same getElementById/querySelector surface. The wrapped page hands\n      // the script its shadow root via a transient `window.__demoRoot`.\n      const root = window.__demoRoot ?? document;\n      const stage = root.host ?? document.body;\n\n      const canvas = root.getElementById(\"canvas\");\n      const ctx = canvas.getContext(\"2d\");\n      const content = root.getElementById(\"content\");\n\n      const textInput = root.getElementById(\"text-input\");\n      const copiesInput = root.getElementById(\"copies-input\");\n      const speedInput = root.getElementById(\"speed-input\");\n      const copyCountEl = root.getElementById(\"copy-count\");\n\n      // ── Animation state ─────────────────────────────────────────\n      let copies = 12;\n      let speed = 1; // multiplier\n      let mouseX = 0.5;\n      let mouseY = 0.5;\n      let targetX = 0.5;\n      let targetY = 0.5;\n      let phase = 0;\n      let lastFrame = performance.now();\n\n      // ── Cross-version API compatibility ─────────────────────────\n      // Chrome Canary currently exposes both names; the spec uses\n      // drawElementImage. Use whichever exists.\n      const drawElementInto =\n        ctx.drawElementImage?.bind(ctx) ?? ctx.drawElement?.bind(ctx);\n\n      // ── Inputs ──────────────────────────────────────────────────\n      textInput.addEventListener(\"input\", () => {\n        content.textContent = textInput.value || \" \";\n        canvas.requestPaint?.();\n      });\n\n      copiesInput.addEventListener(\"input\", () => {\n        copies = Number(copiesInput.value);\n        copyCountEl.textContent = String(copies);\n        canvas.requestPaint?.();\n      });\n\n      speedInput.addEventListener(\"input\", () => {\n        speed = Number(speedInput.value) / 100;\n      });\n\n      // Pointer parallax — the ring tilts toward the cursor.\n      // Listening on window means the parallax tracks even when the\n      // pointer is over chrome outside the demo stage.\n      window.addEventListener(\"pointermove\", (e) => {\n        const rect = stage.getBoundingClientRect();\n        targetX = (e.clientX - rect.left) / rect.width;\n        targetY = (e.clientY - rect.top) / rect.height;\n      });\n\n      // ── Paint callback ──────────────────────────────────────────\n      // Draws the SAME DOM element many times in a rotating ring.\n      // The hero copy at the center is the canonical painting whose\n      // returned DOMMatrix is applied back to the source element so\n      // that DOM hit testing and text selection line up with pixels.\n      canvas.onpaint = () => {\n        // Chrome's <canvas layoutsubtree> uses the canvas's bitmap\n        // dimensions as the layout viewport for children, so we size\n        // the bitmap 1:1 with CSS pixels — see\n        // project_layoutsubtree_bitmap_layout memory. The trade-off\n        // is slightly softer rendering on Retina displays.\n        const cssW = canvas.width;\n        const cssH = canvas.height;\n\n        // Smoothly chase the cursor target\n        mouseX += (targetX - mouseX) * 0.08;\n        mouseY += (targetY - mouseY) * 0.08;\n\n        ctx.reset();\n\n        // Soft motion-trail wash. Filling with translucent black each\n        // frame produces ghostly trails behind moving copies.\n        ctx.fillStyle = \"rgba(7, 7, 13, 0.22)\";\n        ctx.fillRect(0, 0, cssW, cssH);\n\n        // Measure the source element so paintings center on its origin\n        const rect = content.getBoundingClientRect();\n        const halfW = rect.width / 2;\n        const halfH = rect.height / 2;\n\n        const cx = cssW / 2;\n        const cy = cssH / 2;\n        // Tilt the ring center toward the pointer for parallax\n        const offsetX = (mouseX - 0.5) * cssW * 0.18;\n        const offsetY = (mouseY - 0.5) * cssH * 0.18;\n\n        // Ring radius scales with stage size\n        const radius = Math.min(cssW, cssH) * 0.32;\n\n        // Decorative ring copies — no DOM sync, pure painting\n        for (let i = 0; i < copies; i++) {\n          const t = i / copies;\n          const angle = phase + t * Math.PI * 2;\n          const px = cx + offsetX + Math.cos(angle) * radius;\n          const py = cy + offsetY + Math.sin(angle) * radius * 0.55;\n\n          const depth = (Math.sin(angle) + 1) / 2; // 0..1, 1 = front\n          const scale = 0.35 + depth * 0.65;\n\n          ctx.save();\n          ctx.translate(px, py);\n          ctx.rotate(angle + Math.PI / 2);\n          ctx.scale(scale, scale);\n          ctx.globalAlpha = 0.25 + depth * 0.75;\n          drawElementInto(content, -halfW, -halfH);\n          ctx.restore();\n        }\n\n        // Hero copy at the center — drawn last so it's on top, and the\n        // returned transform is synced back to the DOM element so that\n        // selection / focus / hit testing line up with the pixels.\n        ctx.save();\n        ctx.translate(cx + offsetX * 0.4, cy + offsetY * 0.4);\n        ctx.scale(1.2, 1.2);\n        ctx.globalAlpha = 1;\n        const heroTransform = drawElementInto(content, -halfW, -halfH);\n        ctx.restore();\n\n        if (heroTransform) {\n          content.style.transform = heroTransform.toString();\n        }\n      };\n\n      // ── Drive a continuous animation ────────────────────────────\n      // Use requestPaint() so the browser's paint pipeline runs each\n      // frame and generates the cached paint records drawElementImage\n      // depends on.\n      function loop(now) {\n        const dt = (now - lastFrame) / 1000;\n        lastFrame = now;\n        phase += dt * speed * 0.6;\n        canvas.requestPaint?.();\n        requestAnimationFrame(loop);\n      }\n      requestAnimationFrame((t) => {\n        lastFrame = t;\n        loop(t);\n      });\n\n      // ── ResizeObserver: keep the bitmap sized 1:1 with CSS pixels.\n      // We do NOT scale by devicePixelRatio because Chrome's\n      // layoutsubtree uses canvas.width as the layout viewport for\n      // children — a DPR-scaled bitmap doubles the layout width and\n      // breaks text wrapping / percentage padding on Retina displays.\n      new ResizeObserver(([entry]) => {\n        const { width, height } = entry.contentRect;\n        canvas.width = Math.round(width);\n        canvas.height = Math.round(height);\n        canvas.requestPaint?.();\n      }).observe(canvas);\n    "}]</script>
+
+  <script src="../assets/sidebar.js" defer></script>
+  <script src="../assets/support-check.js" defer></script>
+  <script src="../assets/code-pane.js" defer></script>
+  <script src="../assets/demo-embed.js" defer></script>
+</body>
+</html>

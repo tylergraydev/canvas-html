@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>What is a canvas? — HTML in Canvas</title>
+    <meta name="description" content="A plain-English primer on the HTML canvas: a blank rectangle of pixels you paint by hand — with two tiny live examples, a 2D heart and a 3D-lit ball with a soft shadow." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .concept {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 10px 40px;
+        margin-bottom: 22px;
+      }
+      .prose h2 { font-size: 18px; margin: 0 0 8px; letter-spacing: -.01em; }
+      .prose p { color: var(--text-dim); line-height: 1.6; margin: 0 0 14px; max-width: 60ch; }
+      .prose .lead { color: var(--text); font-size: 16px; }
+      .prose code { font-size: .92em; }
+
+      /* Each example: canvas stage on the left, its source on the right */
+      .demo-code { margin-bottom: 26px; }
+      .ex-host {
+        position: relative;
+        height: 360px; border-radius: var(--radius);
+        border: 1px solid var(--border); overflow: hidden;
+        background: #07090d;
+      }
+      .ex-host canvas { display: block; width: 100%; height: 100%; }
+      .ex-label {
+        position: absolute; left: 12px; top: 11px; z-index: 2;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px; letter-spacing: .04em; color: var(--text-mute);
+        background: rgba(7,9,13,.7); padding: 3px 9px; border-radius: 999px;
+        border: 1px solid var(--border);
+      }
+      .ex-stat {
+        position: absolute; right: 12px; top: 11px; z-index: 2;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px; color: var(--accent-2);
+        background: rgba(7,9,13,.7); padding: 3px 9px; border-radius: 999px;
+        border: 1px solid rgba(34,211,238,.3);
+      }
+      .ex-title { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; }
+      .ex-title h2 { margin: 0; font-size: 17px; letter-spacing: -.01em; }
+      .ex-title .tagm {
+        font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px;
+        padding: 2px 8px; border-radius: 999px; color: #67e8f9;
+        background: rgba(34,211,238,.14); border: 1px solid rgba(34,211,238,.4);
+      }
+      .ex-title p { margin: 0; color: var(--text-mute); font-size: 13px; }
+
+      .next { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+    </style>
+  </head>
+  <body data-wide>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Primer · Start before the concepts</p>
+            <h1 class="example__title">What is a canvas?</h1>
+            <p class="example__intro">
+              A <code>&lt;canvas&gt;</code> is the opposite of the <a href="./00a-what-is-the-dom.html">DOM
+              tree</a>: it's a single blank rectangle of <strong>pixels</strong> with nothing inside it
+              — no elements, no nodes, no text the browser knows about. You get a drawing surface and a
+              "brush" (a <em>context</em>), and you paint every dot yourself in JavaScript. It comes in
+              two flavours: a <strong>2D</strong> brush for shapes and text, and a <strong>WebGL</strong>
+              brush that talks to the GPU for real 3D. Here's one tiny example of each.
+            </p>
+          </div>
+        </header>
+
+        <section class="concept">
+          <div class="prose">
+            <h2>A bitmap, not a tree</h2>
+            <p class="lead">Whatever you draw is just coloured dots.</p>
+            <p>There are no child nodes to inspect, no labels, nothing selectable. A screen reader sees
+              one anonymous "canvas" and nothing more. That's the trade: total drawing freedom, zero
+              built-in structure — the exact mirror image of the DOM.</p>
+          </div>
+          <div class="prose">
+            <h2>Two brushes</h2>
+            <p><code>getContext('2d')</code> gives you paths, fills, gradients and text — great for the
+              heart below. <code>getContext('webgl2')</code> gives you the GPU and shaders — that's how
+              the lit, bobbing ball (and its soft shadow) is drawn entirely in a tiny fragment program.</p>
+          </div>
+        </section>
+
+        <!-- ── Example 1 · 2D heart ───────────────────────────────────── -->
+        <div class="ex-title">
+          <h2>Brush #1 — the 2D context</h2>
+          <span class="tagm">getContext('2d')</span>
+          <p>a heart from four Bézier curves</p>
+        </div>
+        <section class="demo-code demo-code--even" aria-label="2D heart demo and its source">
+          <section class="stage" aria-label="Live 2D canvas" style="min-height:0">
+            <div class="ex-host">
+              <span class="ex-label">Canvas · 2D · drawn by hand</span>
+              <canvas id="heart"></canvas>
+            </div>
+          </section>
+          <aside class="code-pane" aria-label="Source code for the heart">
+            <div class="code-pane__bar">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="code-pane__name">heart · 2D context</span>
+            </div>
+            <div class="code-pane__scroll">
+              <p class="code-pane__cap">Path the heart with Bézier curves, fill with a gradient</p>
+              <pre class="code-pane__pre" data-code-from="heart-js"></pre>
+            </div>
+          </aside>
+        </section>
+
+        <!-- ── Example 2 · WebGL 3D ball ──────────────────────────────── -->
+        <div class="ex-title">
+          <h2>Brush #2 — WebGL (real 3D)</h2>
+          <span class="tagm">getContext('webgl2')</span>
+          <p>a lit sphere + soft contact shadow, in one shader</p>
+        </div>
+        <section class="demo-code demo-code--even" aria-label="WebGL 3D ball demo and its source">
+          <section class="stage" aria-label="Live WebGL canvas" style="min-height:0">
+            <div class="ex-host">
+              <span class="ex-label">Canvas · WebGL2 · GPU shader</span>
+              <span class="ex-stat" id="ball-stat">…</span>
+              <canvas id="ball"></canvas>
+            </div>
+          </section>
+          <aside class="code-pane" aria-label="Source code for the ball">
+            <div class="code-pane__bar">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="code-pane__name">ball · WebGL2 fragment shader</span>
+            </div>
+            <div class="code-pane__scroll">
+              <p class="code-pane__cap">A full-screen triangle + a fragment shader that lights a sphere</p>
+              <pre class="code-pane__pre" data-code-from="ball-js"></pre>
+            </div>
+          </aside>
+        </section>
+
+        <section class="callout" style="margin-top:8px">
+          <h3>Notice what's missing</h3>
+          <p>
+            Both examples look rich, but to the page they're a single opaque rectangle. You can't
+            select the heart, you can't Tab to the ball, a screen reader has nothing to announce.
+            That's canvas: pixels, full stop. Now compare it with the <a href="./00a-what-is-the-dom.html">DOM
+            primer</a> — and the next concept shows the trick that lets a canvas paint live DOM and keep
+            all of it.
+          </p>
+        </section>
+
+        <section class="callout" style="margin-top:22px; border-style: solid; border-color: rgba(124,92,255,.35);">
+          <h3>Next</h3>
+          <p>You've met both halves. Time to combine them.</p>
+          <div class="next">
+            <a class="btn btn--primary" href="./01-what-is-this.html">What is HTML in Canvas? →</a>
+            <a class="btn btn--ghost" href="./00a-what-is-the-dom.html">← Back to: the DOM</a>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+
+    <!-- ── 2D heart: paths + gradient on the 2D context ─────────────── -->
+    <script id="heart-js">
+      (() => {
+        const canvas = document.getElementById('heart');
+        const ctx = canvas.getContext('2d');
+        const host = canvas.parentElement;
+
+        // (x, y) is the top-centre dip; w/h are the heart's width/height.
+        function heartPath(x, y, w, h) {
+          const t = h * 0.3;
+          ctx.beginPath();
+          ctx.moveTo(x, y + t);
+          ctx.bezierCurveTo(x, y, x - w / 2, y, x - w / 2, y + t);
+          ctx.bezierCurveTo(x - w / 2, y + (h + t) / 2, x, y + (h + t) / 2, x, y + h);
+          ctx.bezierCurveTo(x, y + (h + t) / 2, x + w / 2, y + (h + t) / 2, x + w / 2, y + t);
+          ctx.bezierCurveTo(x + w / 2, y, x, y, x, y + t);
+          ctx.closePath();
+        }
+
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.width = Math.floor(r.width * dpr);
+          canvas.height = Math.floor(r.height * dpr);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        new ResizeObserver(resize).observe(host);
+        resize();
+
+        // A little double-thump heartbeat (two quick pulses, then rest).
+        const start = performance.now();
+        function beat(ms) {
+          const p = ((ms - start) / 900) % 1;
+          const pulse = (d) => Math.exp(-Math.pow((p - d) * 9, 2));
+          return 1 + 0.10 * pulse(0.0) + 0.07 * pulse(0.17);
+        }
+
+        function frame(now) {
+          const w = canvas.clientWidth, h = canvas.clientHeight;
+          const bg = ctx.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, Math.max(w, h) * 0.6);
+          bg.addColorStop(0, '#1a1020'); bg.addColorStop(1, '#0a0710');
+          ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+
+          const s = beat(now);
+          const hw = Math.min(w, h) * 0.46 * s;
+          const hh = hw * 0.9;
+          const x = w / 2, y = (h - hh) / 2;
+
+          ctx.save();
+          ctx.shadowColor = 'rgba(255,45,107,.55)';
+          ctx.shadowBlur = 40;
+          const g = ctx.createLinearGradient(0, y, 0, y + hh);
+          g.addColorStop(0, '#ff7aa2'); g.addColorStop(1, '#ff2d6b');
+          ctx.fillStyle = g;
+          heartPath(x, y, hw, hh);
+          ctx.fill();
+          ctx.restore();
+
+          // glossy highlight clipped to the heart
+          ctx.save();
+          heartPath(x, y, hw, hh);
+          ctx.clip();
+          const hl = ctx.createRadialGradient(x - hw * 0.16, y + hh * 0.26, 2, x - hw * 0.16, y + hh * 0.26, hw * 0.55);
+          hl.addColorStop(0, 'rgba(255,255,255,.55)'); hl.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = hl; ctx.fillRect(0, 0, w, h);
+          ctx.restore();
+
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      })();
+    </script>
+
+    <!-- ── 3D ball: a lit sphere + soft shadow, entirely in a shader ── -->
+    <script id="ball-js">
+      (() => {
+        const canvas = document.getElementById('ball');
+        const host = canvas.parentElement;
+        const statEl = document.getElementById('ball-stat');
+        const gl = canvas.getContext('webgl2', { antialias: true });
+
+        if (!gl) { statEl.textContent = '2D fallback'; return fallback2D(); }
+
+        const VS = `#version 300 es
+        in vec2 aPos;
+        void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }`;
+
+        // For every pixel: shade a sphere analytically (no mesh needed), then
+        // lay a soft elliptical shadow on the "floor" that widens and fades as
+        // the ball rises. Diffuse + specular + a fresnel rim sell the 3D look.
+        const FS = `#version 300 es
+        precision highp float;
+        uniform vec2 uRes; uniform float uTime;
+        out vec4 frag;
+        void main(){
+          vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y * 2.0;
+          vec3 col = mix(vec3(0.04,0.05,0.09), vec3(0.09,0.11,0.17), 0.55 - 0.5 * uv.y);
+
+          float bob  = sin(uTime * 1.7) * 0.13;
+          float lift = (bob + 0.13) / 0.26;            // 0 (low) .. 1 (high)
+          vec2  c    = vec2(0.0, 0.04 + bob);
+          float R    = 0.55;
+
+          // soft contact shadow
+          vec2 sp = uv - vec2(c.x, -0.62);
+          float sw = 0.52 + lift * 0.20, sh = 0.12;
+          float sd = length(vec2(sp.x / sw, sp.y / sh));
+          float shadow = smoothstep(1.0, 0.0, sd) * (0.5 - lift * 0.22);
+          col = mix(col, vec3(0.0), clamp(shadow, 0.0, 1.0));
+
+          // lit sphere
+          vec2 d2 = uv - c;
+          float d = length(d2);
+          float edge = smoothstep(R, R - 0.012, d);
+          if (edge > 0.0) {
+            float z = sqrt(max(R * R - d * d, 0.0));
+            vec3 N = normalize(vec3(d2, z));
+            vec3 L = normalize(vec3(-0.5, 0.65, 0.8));
+            vec3 V = vec3(0.0, 0.0, 1.0);
+            float diff = max(dot(N, L), 0.0);
+            float spec = pow(max(dot(reflect(-L, N), V), 0.0), 48.0);
+            float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+            vec3 albedo = mix(vec3(0.46,0.20,0.95), vec3(0.16,0.78,1.0), N.y * 0.5 + 0.5);
+            vec3 sphere = albedo * (0.16 + 0.92 * diff)
+                        + vec3(1.0) * spec
+                        + vec3(0.45,0.62,1.0) * fres * 0.55;
+            col = mix(col, sphere, edge);
+          }
+          frag = vec4(col, 1.0);
+        }`;
+
+        const sh = (type, src) => {
+          const s = gl.createShader(type);
+          gl.shaderSource(s, src.replace(/\n        /g, '\n'));
+          gl.compileShader(s);
+          if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+          return s;
+        };
+        const prog = gl.createProgram();
+        gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+        gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+        gl.linkProgram(prog);
+        gl.useProgram(prog);
+
+        // One big triangle covers the whole screen.
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+        const loc = gl.getAttribLocation(prog, 'aPos');
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+        const uRes = gl.getUniformLocation(prog, 'uRes');
+        const uTime = gl.getUniformLocation(prog, 'uTime');
+
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.width = Math.max(1, Math.floor(r.width * dpr));
+          canvas.height = Math.max(1, Math.floor(r.height * dpr));
+          gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+        new ResizeObserver(resize).observe(host);
+        resize();
+
+        const start = performance.now();
+        let frames = 0, fpsT = start, fpsAt = 0;
+        function frame(now) {
+          gl.uniform2f(uRes, canvas.width, canvas.height);
+          gl.uniform1f(uTime, (now - start) / 1000);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+          frames++;
+          if (now - fpsT >= 500) {
+            statEl.textContent = `${Math.round((frames - fpsAt) * 1000 / (now - fpsT))} fps · WebGL`;
+            fpsT = now; fpsAt = frames;
+          }
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+
+        // If WebGL2 is unavailable, draw a gradient sphere so the page never blanks.
+        function fallback2D() {
+          const ctx = canvas.getContext('2d');
+          function rs() {
+            const r = host.getBoundingClientRect();
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            canvas.width = r.width * dpr; canvas.height = r.height * dpr;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
+          new ResizeObserver(rs).observe(host); rs();
+          const t0 = performance.now();
+          (function loop(now) {
+            const w = canvas.clientWidth, h = canvas.clientHeight;
+            ctx.fillStyle = '#0a0c12'; ctx.fillRect(0, 0, w, h);
+            const bob = Math.sin((now - t0) / 1000 * 1.7) * h * 0.06;
+            const cx = w / 2, cy = h * 0.5 + bob, R = Math.min(w, h) * 0.28;
+            ctx.save(); ctx.translate(cx, h * 0.82); ctx.scale(1, 0.3);
+            const sg = ctx.createRadialGradient(0, 0, 2, 0, 0, R * 1.3);
+            sg.addColorStop(0, 'rgba(0,0,0,.5)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(0, 0, R * 1.3, 0, 7); ctx.fill(); ctx.restore();
+            const g = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.1, cx, cy, R);
+            g.addColorStop(0, '#cfe6ff'); g.addColorStop(0.5, '#3aa0ff'); g.addColorStop(1, '#5a2bd0');
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
+            requestAnimationFrame(loop);
+          })(t0);
+        }
+      })();
+    </script>
+    <script src="../assets/code-pane.js" defer></script>
+  </body>
+</html>

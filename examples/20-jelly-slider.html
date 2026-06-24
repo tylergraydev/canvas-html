@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>20 · Jelly slider (WebGL) — HTML in Canvas</title>
+    <meta name="description" content="A ray-marched translucent gel slider: a soft-body SDF tube with refraction and gloss on a light tray, with the value uploaded via texElementImage2D." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 520px; background: #f3f1ee; }
+      canvas.scene { min-height: 520px; background: transparent; }
+      .canvas-host__label { background: rgba(255,255,255,.7); color: #6b6258; border-color: rgba(0,0,0,.12); }
+      .diag { background: rgba(255,255,255,.7); color: #6b6258; border-color: rgba(0,0,0,.12); }
+
+      /* Real, keyboard-operable range input, pinned over the track but invisible —
+         the gel is ray-marched, this is just the accessible control. */
+      .jelly-input {
+        -webkit-appearance: none; appearance: none;
+        margin: 0; padding: 0; background: transparent;
+        height: 70px; opacity: 0; transform-origin: 0 0; cursor: grab;
+      }
+      .jelly-input:active { cursor: grabbing; }
+      .jelly-input::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 4px; height: 70px; }
+      .jelly-input::-moz-range-thumb { width: 4px; height: 70px; border: 0; }
+
+      /* The spelled-out percentage. Uploaded to the GPU with texElementImage2D()
+         and painted flat onto the tray, exactly as the original draws #value. */
+      .jelly-value {
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        font-weight: 800; font-size: 64px; letter-spacing: -0.02em;
+        color: #7c7268; white-space: nowrap; transform-origin: 0 0;
+      }
+
+      .fallback-host .jelly-input { opacity: 1; appearance: auto; -webkit-appearance: auto; height: auto; width: 320px; accent-color: #ff7313; }
+      .fallback-host .jelly-input::-webkit-slider-thumb { -webkit-appearance: auto; appearance: auto; width: auto; height: auto; }
+      .fallback-host .jelly-value { font-size: 40px; }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 20 · Showcase</p>
+            <h1 class="example__title">Jelly slider (WebGL)</h1>
+            <p class="example__intro">
+              A dependency-free WebGL2 port of the WICG <code>webgpu-jelly-slider</code>. The bar is a
+              <em>ray-marched translucent gel</em>: a soft-body chain (Verlet physics, computed on the
+              CPU) is rasterised into a signed-distance field, then a fragment shader marches a 3D tube
+              through it with Fresnel reflection, refraction, Beer–Lambert absorption and a specular
+              highlight, resting on a light tray with a soft shadow. Drag the handle — the gel
+              stretches and wobbles. The slider is a real range input, and the spelled-out percentage
+              is a live DOM element uploaded to the GPU with <code>texElementImage2D()</code> and
+              painted onto the tray.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">WebGL2 · SDF ray-march + texElementImage2D value</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+
+            <canvas class="scene" id="scene" layoutsubtree>
+              <input class="jelly-input" id="slider" type="range" min="0" max="100" value="62" aria-label="Jelly value" />
+              <div class="jelly-value" id="value" inert>Sixty-two %</div>
+            </canvas>
+
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <button class="seg" id="poke" style="border:1px solid var(--border); border-radius:8px;">Poke 🍮</button>
+            <label class="slider"><span>Squish</span><input type="range" id="arch" min="0" max="100" value="55" /><span class="slider__val" id="arch-val">55</span></label>
+            <label class="slider"><span>Bounciness</span><input type="range" id="bounce" min="20" max="98" value="80" /><span class="slider__val" id="bounce-val">80%</span></label>
+            <span class="stat" id="stat">—</span>
+            <div class="controls__spacer"></div>
+            <button class="btn btn--ghost" id="snapshot">Save snapshot (PNG)</button>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>How the gel gets its look</h3>
+          <p>
+            A 17-point chain runs from a left anchor to the handle (the slider's value). Verlet
+            integration with distance, bending and arch constraints makes it buckle and wobble like a
+            soft body. Each frame the chain is drawn into a small floating-point texture as a 2D
+            distance field; the ray-marcher samples that field, extrudes it into a 3D tube, and shades
+            the surface as glassy jelly: <code>Fresnel</code> reflection at grazing angles, a refracted
+            ray tinted by <code>Beer–Lambert</code> absorption (so it deepens orange where it's thick),
+            forward <code>scatter</code>, and a tight specular highlight. The tray is a lit plane with a
+            projected soft shadow and the spelled-out percentage. WebGL exposes
+            <code>texElementImage2D()</code> — the counterpart of the WebGPU
+            <code>copyElementImageToTexture()</code> the original uses — to upload that live DOM text
+            straight to the GPU.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script src="../assets/code-pane.js" defer></script>
+    <script>
+      (() => {
+        const canvas   = document.getElementById('scene');
+        const slider   = document.getElementById('slider');
+        const valueEl  = document.getElementById('value');
+        const host     = document.getElementById('canvas-host');
+        const fbHost   = document.getElementById('fallback-host');
+        const stat     = document.getElementById('stat');
+        const notice   = document.getElementById('trial-notice');
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+        const snapBtn  = document.getElementById('snapshot');
+        const poke     = document.getElementById('poke');
+        const archIn   = document.getElementById('arch'), archVal = document.getElementById('arch-val');
+        const bounceIn = document.getElementById('bounce'), bounceVal = document.getElementById('bounce-val');
+
+        const gl = canvas.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: true });
+        const floatBuf = gl && gl.getExtension('EXT_color_buffer_float');
+        const supported = !!gl && typeof gl.texElementImage2D === 'function' && !!floatBuf;
+
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        function showError(message, where) {
+          notice.hidden = false; notice.dataset.tone = 'error'; notice.textContent = '';
+          const strong = document.createElement('strong'); strong.textContent = `Runtime error in ${where}: `;
+          const code = document.createElement('code'); code.textContent = message;
+          notice.append(strong, code);
+          setDiag('bad', `error in ${where}`);
+        }
+        window.addEventListener('error', (e) => showError(e.message || String(e.error), 'window'));
+        setDiag(supported ? 'ok' : 'bad', supported ? 'texElementImage2D() ready' : 'WebGL2 / texElementImage2D missing');
+
+        // ── Spelled-out percentage (matches the original's #value) ────
+        const ONES = ['Zero','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+        const TENS = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+        function percentString(n) {
+          if (n === 100) return 'One-hundred %';
+          if (n < 20) return `${ONES[n]} %`;
+          const t = TENS[Math.floor(n / 10)];
+          const o = n % 10 === 0 ? '' : `-${ONES[n % 10].toLowerCase()}`;
+          return `${t}${o} %`;
+        }
+
+        // ── Soft-body chain (Verlet) ──────────────────────────────────
+        const N = 17;
+        const ANCHOR_X = -1.0, END_X = 0.9, FULL = END_X - ANCHOR_X;   // value 0..100 → x ∈ [-1, 0.9]
+        const SUBSTEPS = 6, ITER = 14;
+        const restLen = FULL / (N - 1);                                 // fixed → buckles when compressed
+        const px = new Float32Array(N), py = new Float32Array(N);
+        const qx = new Float32Array(N), qy = new Float32Array(N);
+        const flat = new Float32Array(N * 2);
+        const state = { arch: 9, damping: 0.20, dragging: false };
+        let targetX = 0, currentX = 0, started = false;
+
+        archIn.addEventListener('input', () => { state.arch = (+archIn.value / 100) * 18; archVal.textContent = archIn.value; });
+        bounceIn.addEventListener('input', () => { state.damping = 0.02 + (1 - +bounceIn.value / 100) * 0.5; bounceVal.textContent = `${bounceIn.value}%`; });
+
+        function setTargetFromValue() { targetX = ANCHOR_X + (+slider.value / 100) * FULL; }
+        function initChain() {
+          setTargetFromValue(); currentX = targetX;
+          for (let i = 0; i < N; i++) { const t = i / (N - 1); px[i] = qx[i] = ANCHOR_X + t * (currentX - ANCHOR_X); py[i] = qy[i] = 0; }
+          started = true;
+        }
+        const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+        function physics(dt) {
+          currentX += (targetX - currentX) * 0.12;
+          const compression = Math.max(0, 1 - Math.abs(currentX - ANCHOR_X) / FULL);
+          const h = dt / SUBSTEPS, damp = Math.min(0.999, state.damping);
+          for (let s = 0; s < SUBSTEPS; s++) {
+            for (let i = 0; i < N; i++) {
+              if (i === 0) { px[i] = qx[i] = ANCHOR_X; py[i] = qy[i] = 0; continue; }
+              if (i === N - 1) { px[i] = qx[i] = currentX; py[i] = qy[i] = 0.02; continue; }
+              const vx = (px[i] - qx[i]) * (1 - damp);
+              const vy = (py[i] - qy[i]) * (1 - damp);
+              const t = i / (N - 1);
+              const win = ss(0.02, 0.98, t) * ss(0.02, 0.98, 1 - t);
+              const ay = -state.arch * Math.sin(Math.PI * t) * win * compression;
+              qx[i] = px[i]; qy[i] = py[i];
+              px[i] += vx; py[i] += vy + ay * h * h;
+              if (py[i] < 0) py[i] = 0;
+            }
+            for (let it = 0; it < ITER; it++) {
+              for (let i = 0; i < N - 1; i++) dist(i, i + 1, restLen, 0.6);
+              for (let i = 1; i < N - 1; i++) { const t = i / (N - 1); const dc = Math.abs(t - 0.5) * 2; dist(i - 1, i + 1, 2 * restLen, 0.1 + 0.5 * dc); }
+              px[0] = ANCHOR_X; py[0] = 0; px[N - 1] = currentX; py[N - 1] = 0.02;
+            }
+          }
+        }
+        function dist(i, j, rest, k) {
+          const dx = px[j] - px[i], dy = py[j] - py[i];
+          const len = Math.hypot(dx, dy); if (len < 1e-6) return;
+          const wi = (i === 0 || i === N - 1) ? 0 : 1, wj = (j === 0 || j === N - 1) ? 0 : 1, ws = wi + wj;
+          if (ws <= 0) return;
+          const diff = ((len - rest) / len) * k;
+          px[i] += dx * diff * (wi / ws); py[i] += dy * diff * (wi / ws);
+          px[j] -= dx * diff * (wj / ws); py[j] -= dy * diff * (wj / ws);
+        }
+        function energy() { let e = 0; for (let i = 1; i < N - 1; i++) e += Math.abs(px[i] - qx[i]) + Math.abs(py[i] - qy[i]); return e; }
+
+        // ── GL setup ──────────────────────────────────────────────────
+        const BBOX = [-1.12, 1.06, -0.32, 0.78];   // left, right, bottom, top
+        const DFW = 360, DFH = 180;
+        const R = 0.115, T = 0.10;                  // tube radius, half-depth
+        const GROUND_Y = -0.05;
+
+        function compile(type, src) {
+          const sh = gl.createShader(type);
+          gl.shaderSource(sh, src); gl.compileShader(sh);
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+          return sh;
+        }
+        function program(vs, fs) {
+          const p = gl.createProgram();
+          gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+          gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+          gl.linkProgram(p);
+          if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+          return p;
+        }
+
+        const VS = `#version 300 es
+        precision highp float;
+        const vec2 P[3] = vec2[3](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+        out vec2 vUv;
+        void main(){ vec2 p = P[gl_VertexID]; vUv = p*0.5+0.5; gl_Position = vec4(p,0.0,1.0); }`;
+
+        const DF_FS = `#version 300 es
+        precision highp float;
+        in vec2 vUv; out vec4 frag;
+        uniform vec2 uPts[${N}];
+        uniform vec4 uBbox;
+        void main(){
+          vec2 p = vec2(mix(uBbox.x, uBbox.y, vUv.x), mix(uBbox.z, uBbox.w, vUv.y));
+          float md = 1e9, prog = 0.0;
+          for (int i = 0; i < ${N - 1}; i++) {
+            vec2 a = uPts[i], b = uPts[i+1];
+            vec2 pa = p - a, ba = b - a;
+            float t = clamp(dot(pa,ba)/max(dot(ba,ba),1e-8), 0.0, 1.0);
+            float dst = length(pa - ba*t);
+            if (dst < md) { md = dst; prog = (float(i)+t)/${(N - 1).toFixed(1)}; }
+          }
+          frag = vec4(md, prog, 0.0, 1.0);
+        }`;
+
+        const MAIN_FS = `#version 300 es
+        precision highp float;
+        in vec2 vUv; out vec4 frag;
+        uniform vec3 uCamPos, uR, uU, uF;
+        uniform float uTan, uAspect, uTime;
+        uniform vec4 uBbox;
+        uniform vec3 uJelly;
+        uniform sampler2D uDF;
+        uniform sampler2D uVal;
+        uniform vec4 uTextRect;   // xMin, xMax (world x), zMin, zMax (world z) on ground
+
+        const float R = ${R.toFixed(4)};
+        const float T = ${T.toFixed(4)};
+        const float GY = ${GROUND_Y.toFixed(3)};
+        const float IOR = 1.42;
+        const float SPEC_POW = 10.0;
+        const float SPEC_INT = 0.6;
+        const int   STEPS = 80;
+        const float SURF = 0.0016;
+
+        vec3 LIGHT = normalize(vec3(-0.19, 0.34, -0.62));
+
+        vec2 dfAt(vec2 p){
+          vec2 uv = vec2((p.x-uBbox.x)/(uBbox.y-uBbox.x), (p.y-uBbox.z)/(uBbox.w-uBbox.z));
+          if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec2(1.0, 0.0);
+          return texture(uDF, uv).xy;
+        }
+        float tubeDist(vec3 P){
+          float d2 = dfAt(P.xy).x;
+          vec2 w = vec2(d2, abs(P.z) - T);
+          return min(max(w.x,w.y),0.0) + length(max(w,vec2(0.0))) - R;
+        }
+        float groundDist(vec3 P){ return P.y - GY; }
+        // which: 1 = jelly, 0 = ground
+        float scene(vec3 P, out int which){
+          float g = groundDist(P), j = tubeDist(P);
+          which = j < g ? 1 : 0;
+          return min(g, j);
+        }
+        vec3 tubeNormal(vec3 P){
+          vec2 e = vec2(0.0022, 0.0);
+          return normalize(vec3(
+            tubeDist(P+e.xyy)-tubeDist(P-e.xyy),
+            tubeDist(P+e.yxy)-tubeDist(P-e.yxy),
+            tubeDist(P+e.yyx)-tubeDist(P-e.yyx)));
+        }
+        float fresnel(float c){ float r0 = pow((1.0-IOR)/(1.0+IOR),2.0); return r0 + (1.0-r0)*pow(1.0-c,5.0); }
+
+        vec4 textSample(vec3 P){
+          float u = (P.x - uTextRect.x) / (uTextRect.y - uTextRect.x);
+          float v = (P.z - uTextRect.z) / (uTextRect.w - uTextRect.z);
+          if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) return vec4(0.0);
+          return texture(uVal, vec2(u, v));
+        }
+        // Soft contact shadow: how much jelly sits above ground point P (xz).
+        float groundShadow(vec3 P){
+          float occ = 0.0;
+          // sample the field along the slider's vertical plane near z=0
+          for (int i=0;i<3;i++){
+            float zz = (float(i)-1.0)*0.06;
+            vec2 s = dfAt(vec2(P.x, 0.04 + float(i)*0.02));
+            occ = max(occ, 1.0 - smoothstep(0.0, 0.16, s.x));
+          }
+          float zFall = exp(-pow((P.z - LIGHT.x*0.2)/0.30, 2.0));
+          return clamp(occ * zFall, 0.0, 1.0);
+        }
+
+        vec3 shadeGround(vec3 P){
+          vec3 base = vec3(0.96, 0.95, 0.93);
+          float diff = clamp(dot(vec3(0,1,0), LIGHT), 0.0, 1.0);
+          vec3 lit = base * (0.6 + 0.5*diff);
+          // soft shadow
+          float sh = groundShadow(P);
+          lit *= mix(1.0, 0.42, sh);
+          // warm bounce from the gel
+          float d = dfAt(vec2(P.x, 0.06)).x;
+          lit += uJelly * exp(-d*6.0) * 0.18 * exp(-pow(P.z/0.4,2.0));
+          // percentage text painted on the tray
+          vec4 tx = textSample(P);
+          lit = mix(lit, vec3(0.42,0.38,0.34), tx.a);
+          return lit;
+        }
+
+        vec3 shadeJelly(vec3 P, vec3 N, vec3 V){
+          float prog = dfAt(P.xy).y;
+          float cosi = clamp(dot(N, V), 0.0, 1.0);
+          float F = fresnel(cosi);
+          // Beer-Lambert: deepen orange with thickness, but keep it orange throughout
+          vec3 absorb = (vec3(1.0) - uJelly) * 9.0;
+          float thick = 0.35 + prog * 0.7;
+          vec3 body = exp(-absorb * thick * 0.5);     // light tray seen through the gel
+          // soft diffuse on the gel body
+          float diff = clamp(dot(N, LIGHT) * 0.5 + 0.5, 0.0, 1.0);
+          body *= (0.55 + 0.55 * diff);
+          // forward scatter glow (translucent backlight)
+          float fwd = max(dot(LIGHT, -V), 0.0);
+          body += uJelly * (3.0 * fwd * prog * prog) * 0.12;
+          // glossy reflection via fresnel
+          vec3 refl = vec3(0.72 + 0.28 * clamp(N.y, 0.0, 1.0));
+          vec3 col = mix(body, refl, F * 0.6);
+          // tight specular highlight
+          vec3 H = normalize(LIGHT + V);
+          col += vec3(1.0) * pow(max(dot(N, H), 0.0), SPEC_POW) * 0.85;
+          // bright fresnel rim
+          col += uJelly * pow(1.0 - cosi, 4.0) * 0.4;
+          return col;
+        }
+
+        void main(){
+          vec2 ndc = vUv*2.0 - 1.0;
+          vec3 ro = uCamPos;
+          vec3 rd = normalize(ndc.x*uTan*uAspect*uR + ndc.y*uTan*uU + uF);
+
+          // background gradient (light room)
+          vec3 bg = mix(vec3(0.82,0.81,0.80), vec3(0.93,0.93,0.92), clamp(vUv.y,0.0,1.0));
+
+          float t = 0.0; int which = 0; bool hit = false; vec3 P;
+          for (int i=0;i<STEPS;i++){
+            P = ro + rd*t;
+            float d = scene(P, which);
+            if (d < SURF) { hit = true; break; }
+            t += d;
+            if (t > 12.0) break;
+          }
+
+          vec3 col = bg;
+          if (hit) {
+            if (which == 1) {
+              vec3 N = tubeNormal(P);
+              vec3 V = normalize(ro - P);
+              col = shadeJelly(P, N, V);
+            } else {
+              col = shadeGround(P);
+            }
+          }
+          col = tanh(col * 1.25);
+          frag = vec4(col, 1.0);
+        }`;
+
+        if (!supported) { mountFallback(); return; }
+
+        const dfProg = program(VS, DF_FS);
+        const mainProg = program(VS, MAIN_FS);
+        const vao = gl.createVertexArray();   // empty VAO; verts come from gl_VertexID
+
+        // DF render target (float)
+        const dfTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, dfTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, DFW, DFH, 0, gl.RGBA, gl.FLOAT, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        const dfFbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, dfFbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, dfTex, 0);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+        // value texture (text uploaded via texElementImage2D)
+        const valTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, valTex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        // Re-upload for several frames after a change: texElementImage2D, like
+        // drawElementImage, reads the previous paint snapshot, so the frame the
+        // text changes still captures the old string — a few extra uploads let
+        // the fresh snapshot land. Also retries until the element first paints.
+        let valUploads = 10;
+        function uploadValue() {
+          try {
+            gl.bindTexture(gl.TEXTURE_2D, valTex);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+            gl.texElementImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, valueEl);
+            return true;
+          } catch (e) { return false; }
+        }
+
+        // uniforms
+        const dfU = { pts: gl.getUniformLocation(dfProg, 'uPts'), bbox: gl.getUniformLocation(dfProg, 'uBbox') };
+        const mU = {};
+        ['uCamPos','uR','uU','uF','uTan','uAspect','uTime','uBbox','uJelly','uDF','uVal','uTextRect']
+          .forEach(n => mU[n] = gl.getUniformLocation(mainProg, n));
+
+        // Camera (3/4 view, looking down at the tray)
+        const sub = (a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+        const nrm = (v)=>{const l=Math.hypot(v[0],v[1],v[2])||1;return [v[0]/l,v[1]/l,v[2]/l];};
+        const crs = (a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+        const EYE = [0.05, 1.15, 2.2], TGT = [-0.02, 0.06, 0.0], UP = [0,1,0], FOV = 42 * Math.PI/180;
+        const camF = nrm(sub(TGT, EYE));
+        const camR = nrm(crs(camF, UP));
+        const camU = crs(camR, camF);
+
+        let cssW = 1, cssH = 1;
+        function resize() {
+          const r = host.getBoundingClientRect();
+          cssW = Math.max(360, Math.floor(r.width));
+          cssH = Math.max(500, Math.floor(r.height));
+          const scale = Math.min(1, 760 / cssW);   // cap internal res for the ray-marcher
+          canvas.style.width = `${cssW}px`; canvas.style.height = `${cssH}px`;
+          canvas.width = Math.floor(cssW * scale);
+          canvas.height = Math.floor(cssH * scale);
+        }
+        new ResizeObserver(resize).observe(host);
+
+        function pinInput() {
+          // Map world x ∈ [-1,0.9] (the track) to screen via the camera, roughly,
+          // to overlay the invisible range input. A linear screen mapping along the
+          // track baseline is close enough for grabbing.
+          const sx = projectX(ANCHOR_X), ex = projectX(END_X);
+          const left = Math.min(sx, ex), wpx = Math.abs(ex - sx);
+          const top = projectY() - 35;
+          slider.style.width = `${wpx}px`;
+          slider.style.transform = `translate(${left}px, ${top}px)`;
+          slider.style.pointerEvents = 'auto';
+          valueEl.style.transform = 'translate(-99999px,-99999px)';   // drawn via the GPU, hide the DOM copy
+        }
+        // crude projection of a baseline world point (x, 0, 0) to CSS px
+        function projectX(wx) {
+          const p = [wx - EYE[0], 0 - EYE[1], 0 - EYE[2]];
+          const xv = p[0]*camR[0]+p[1]*camR[1]+p[2]*camR[2];
+          const zv = p[0]*camF[0]+p[1]*camF[1]+p[2]*camF[2];
+          const ndcx = (xv / (zv * Math.tan(FOV/2) * (cssW/cssH)));
+          return (ndcx*0.5+0.5) * cssW;
+        }
+        function projectY() {
+          const p = [0 - EYE[0], 0 - EYE[1], 0 - EYE[2]];
+          const yv = p[0]*camU[0]+p[1]*camU[1]+p[2]*camU[2];
+          const zv = p[0]*camF[0]+p[1]*camF[1]+p[2]*camF[2];
+          const ndcy = (yv / (zv * Math.tan(FOV/2)));
+          return (1-(ndcy*0.5+0.5)) * cssH;
+        }
+
+        // ── Interaction ───────────────────────────────────────────────
+        function onValue() { valueEl.textContent = percentString(+slider.value); valUploads = 10; setTargetFromValue(); }
+        slider.addEventListener('input', onValue);
+        slider.addEventListener('pointerdown', () => { state.dragging = true; });
+        window.addEventListener('pointerup', () => { state.dragging = false; });
+        poke.addEventListener('click', () => { for (let i=1;i<N-1;i++){ const t=i/(N-1); qy[i] -= 0.06*Math.sin(Math.PI*t); } });
+
+        // ── Render loop ───────────────────────────────────────────────
+        let last = performance.now(), paints = 0, fpsT = performance.now(), fpsAt = 0, lastFps = 0;
+        const orange = [1.0, 0.45, 0.075];
+
+        function frame() {
+          const now = performance.now();
+          const dt = Math.min(1/30, (now - last)/1000) || 1/60; last = now;
+          if (!started) initChain();
+          physics(dt);
+          for (let i = 0; i < N; i++) { flat[i*2] = px[i]; flat[i*2+1] = py[i]; }
+
+          // Pass 1 — distance field
+          gl.bindFramebuffer(gl.FRAMEBUFFER, dfFbo);
+          gl.viewport(0, 0, DFW, DFH);
+          gl.useProgram(dfProg);
+          gl.bindVertexArray(vao);
+          gl.uniform2fv(dfU.pts, flat);
+          gl.uniform4f(dfU.bbox, BBOX[0], BBOX[1], BBOX[2], BBOX[3]);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+          // value texture (re-upload for a few frames after a change)
+          if (valUploads > 0 && uploadValue()) valUploads--;
+
+          // Pass 2 — ray-march to screen
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          gl.viewport(0, 0, canvas.width, canvas.height);
+          gl.useProgram(mainProg);
+          gl.bindVertexArray(vao);
+          gl.uniform3fv(mU.uCamPos, EYE);
+          gl.uniform3fv(mU.uR, camR); gl.uniform3fv(mU.uU, camU); gl.uniform3fv(mU.uF, camF);
+          gl.uniform1f(mU.uTan, Math.tan(FOV/2));
+          gl.uniform1f(mU.uAspect, canvas.width / canvas.height);
+          gl.uniform1f(mU.uTime, now * 0.001);
+          gl.uniform4f(mU.uBbox, BBOX[0], BBOX[1], BBOX[2], BBOX[3]);
+          gl.uniform3fv(mU.uJelly, orange);
+          gl.uniform4f(mU.uTextRect, -0.95, 0.95, 0.18, 0.55);
+          gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, dfTex); gl.uniform1i(mU.uDF, 0);
+          gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, valTex); gl.uniform1i(mU.uVal, 1);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+          pinInput();
+
+          paints++;
+          if (now - fpsT >= 500) { lastFps = ((paints - fpsAt)*1000)/(now - fpsT); fpsT = now; fpsAt = paints; }
+          stat.textContent = `${lastFps.toFixed(0)} fps · value ${slider.value} · WebGL2`;
+          requestAnimationFrame(frame);
+        }
+
+        onValue();
+        resize();
+        requestAnimationFrame(frame);
+
+        snapBtn.addEventListener('click', () => {
+          const link = document.createElement('a');
+          link.download = `jelly-slider-${performance.now() | 0}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        });
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          slider.style.transform = ''; valueEl.style.transform = '';
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:16px;';
+          valueEl.textContent = percentString(+slider.value);
+          wrap.append(valueEl, slider);
+          fbHost.append(wrap);
+          slider.addEventListener('input', () => { valueEl.textContent = percentString(+slider.value); });
+          notice.hidden = false; notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong'); strong.textContent = 'WebGL2 + texElementImage2D not available.';
+          const code = document.createElement('code'); code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(strong, ' This demo ray-marches the gel in WebGL2 and needs the HTML-in-Canvas flag (', code, ', Chrome 148+) plus float render targets. Showing a plain slider for now.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

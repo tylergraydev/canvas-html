@@ -38,6 +38,42 @@
           </div>
         </header>
 
+        <section class="start-here" aria-label="Start here">
+          <h2 class="start-here__title">New here? Start with the concepts</h2>
+          <div class="intro-grid">
+            <a class="intro-card" href="./intro/00a-what-is-the-dom.html">
+              <span class="intro-card__step">Primer 01</span>
+              <h3>What is the DOM?</h3>
+              <p>The live tree of objects the browser builds from your HTML — shown three ways.</p>
+              <span class="intro-card__go">Learn it →</span>
+            </a>
+            <a class="intro-card" href="./intro/00b-what-is-the-canvas.html">
+              <span class="intro-card__step">Primer 02</span>
+              <h3>What is a canvas?</h3>
+              <p>A blank grid of pixels you paint by hand — a 2D heart and a 3D-lit ball.</p>
+              <span class="intro-card__go">Learn it →</span>
+            </a>
+            <a class="intro-card" href="./intro/01-what-is-this.html">
+              <span class="intro-card__step">Concept 01</span>
+              <h3>What is HTML in Canvas?</h3>
+              <p>The problem it solves, the mental model, and the two API entry points — with code.</p>
+              <span class="intro-card__go">Read it →</span>
+            </a>
+            <a class="intro-card" href="./intro/02-before-after.html">
+              <span class="intro-card__step">Concept 02</span>
+              <h3>Before vs After</h3>
+              <p>The same card, two canvases. The old way is a frozen picture; the new way is alive.</p>
+              <span class="intro-card__go">Compare →</span>
+            </a>
+            <a class="intro-card" href="./intro/03-accessibility.html">
+              <span class="intro-card__step">Concept 03</span>
+              <h3>Accessibility, for real</h3>
+              <p>Painted pixels that a screen reader can still read and a keyboard can still drive.</p>
+              <span class="intro-card__go">See how →</span>
+            </a>
+          </div>
+        </section>
+
         <section class="grid" aria-label="Examples">
           <article class="card" data-tone="violet">
             <div class="card__preview">
@@ -206,6 +242,135 @@
               <a class="card__link" href="./examples/16-login-orb-webgl.html">Open demo →</a>
             </div>
           </article>
+
+          <article class="card" data-tone="rose">
+            <div class="card__preview">
+              <div class="card__chip">17</div>
+              <div class="card__art card__art--reflect"></div>
+            </div>
+            <div class="card__body">
+              <h2>Accessible pie chart</h2>
+              <p>Gradient wedges with focusable DOM labels and real keyboard focus rings.</p>
+              <a class="card__link" href="./examples/17-pie-chart.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="emerald">
+            <div class="card__preview">
+              <div class="card__chip">18</div>
+              <div class="card__art card__art--warp"></div>
+            </div>
+            <div class="card__body">
+              <h2>Polyglot rich text</h2>
+              <p>Emoji, RTL Arabic, vertical CJK, inline SVG and a live input on a tilted canvas.</p>
+              <a class="card__link" href="./examples/18-polyglot-text.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="amber">
+            <div class="card__preview">
+              <div class="card__chip">19</div>
+              <div class="card__art card__art--card3d"></div>
+            </div>
+            <div class="card__body">
+              <h2>Spinning text cube (WebGL)</h2>
+              <p>Six live DOM panels mapped onto a tumbling 3D cube via texElementImage2D.</p>
+              <a class="card__link" href="./examples/19-text-cube.html">Open demo →</a>
+            </div>
+          </article>
+
+          <article class="card" data-tone="violet">
+            <div class="card__preview">
+              <div class="card__chip">20</div>
+              <div class="card__art card__art--particles"></div>
+            </div>
+            <div class="card__body">
+              <h2>Jelly slider (WebGL)</h2>
+              <p>A ray-marched translucent gel slider; the value painted on the tray via texElementImage2D.</p>
+              <a class="card__link" href="./examples/20-jelly-slider.html">Open demo →</a>
+            </div>
+          </article>
+        </section>
+
+        <section class="start-here" aria-label="Demos from html-in-canvas.dev" style="margin-top:40px">
+          <h2 class="start-here__title">More demos · vendored from html-in-canvas.dev</h2>
+          <p style="margin:-6px 0 16px; color:var(--text-dim); font-size:13.5px; max-width:80ch; line-height:1.55;">
+            The official community gallery by
+            <a href="https://endash.us" target="_blank" rel="noopener" style="color:var(--accent-2)">En Dash Consulting</a>,
+            copied in verbatim (<a href="https://github.com/en-dash-consulting/html-in-canvas-dot-dev" target="_blank" rel="noopener" style="color:var(--accent-2)">MIT-licensed</a>,
+            see <code>demos/UPSTREAM-LICENSE.txt</code>) and mounted in our own layout — each runs in a
+            style-isolated shadow root with its full source in the Source / Accessibility code panel.
+          </p>
+          <div class="intro-grid">
+            <a class="intro-card" href="./demos/hello-world.html">
+              <span class="intro-card__step">2D</span><h3>Hello world</h3>
+              <p>The simplest demo — a styled div drawn into a canvas.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/interactive-form.html">
+              <span class="intro-card__step">2D</span><h3>Interactive form</h3>
+              <p>A full HTML form inside canvas — inputs stay natively interactive.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/multi-element-composition.html">
+              <span class="intro-card__step">2D</span><h3>Multi-element composition</h3>
+              <p>Multiple draggable canvas children with independent transforms.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/accessible-charts.html">
+              <span class="intro-card__step">2D</span><h3>Accessible charts</h3>
+              <p>Bar &amp; pie charts with real, focusable HTML labels and keyboard support.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/internationalized-text.html">
+              <span class="intro-card__step">2D</span><h3>Internationalized text</h3>
+              <p><code>fillText()</code> vs <code>drawElementImage</code> for RTL, CJK &amp; complex scripts.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/html-to-image.html">
+              <span class="intro-card__step">2D</span><h3>HTML-to-image export</h3>
+              <p>Social/OG card generator exporting to PNG/JPEG — a native <code>html2canvas</code>.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/html-video-recording.html">
+              <span class="intro-card__step">2D</span><h3>HTML video recording</h3>
+              <p>Record animated HTML content as WebM video.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/offscreen-canvas-worker.html">
+              <span class="intro-card__step">2D · Worker</span><h3>OffscreenCanvas worker</h3>
+              <p>Capture HTML as a transferable ElementImage and render it in a Web Worker.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/rich-text-canvas-editor.html">
+              <span class="intro-card__step">2D</span><h3>Rich text canvas editor</h3>
+              <p>A <code>contenteditable</code> div in canvas with live drop-shadow &amp; neon glow.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/morphing-text-transitions.html">
+              <span class="intro-card__step">2D</span><h3>Morphing text transitions</h3>
+              <p>Two HTML layouts morph into each other via canvas pixel manipulation.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/pixel-disintegration.html">
+              <span class="intro-card__step">2D</span><h3>Pixel disintegration</h3>
+              <p>A profile card disintegrating into physics particles on click.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/frosted-glass-backdrop.html">
+              <span class="intro-card__step">2D</span><h3>Frosted glass backdrop</h3>
+              <p>Draggable frosted-glass panel with gaussian, directional &amp; tilt-shift blur.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/elastic-bulge.html">
+              <span class="intro-card__step">WebGL</span><h3>Elastic bulge</h3>
+              <p>A mouse-driven WebGL2 bulge that warps laid-out HTML with a soft shadow.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/liquid-glass.html">
+              <span class="intro-card__step">WebGL</span><h3>Liquid glass distortion</h3>
+              <p>An HTML card behind a real-time WebGL liquid-glass refraction shader.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/css-to-shader.html">
+              <span class="intro-card__step">WebGL</span><h3>CSS-to-shader pipeline</h3>
+              <p>Pipe a CSS-painted HTML source through a GLSL fragment shader.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/page-curl-book-turn.html">
+              <span class="intro-card__step">WebGL</span><h3>Page curl / book turn</h3>
+              <p>Two HTML pages as WebGL textures with a draggable page-curl.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+            <a class="intro-card" href="./demos/3d-room-live-content.html">
+              <span class="intro-card__step">WebGL · Three.js</span><h3>3D room, live content</h3>
+              <p>A first-person Three.js room with live HTML rendered as textures on surfaces.</p><span class="intro-card__go">Open demo →</span>
+            </a>
+          </div>
         </section>
 
         <section class="callout">

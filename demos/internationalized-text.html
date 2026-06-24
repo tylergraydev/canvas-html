@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Internationalized text — HTML in Canvas</title>
+  <meta name="description" content="Side-by-side fillText() vs drawElementImage for RTL, CJK and other complex scripts." />
+  <link rel="stylesheet" href="../assets/styles.css" />
+  <link rel="stylesheet" href="../assets/example.css" />
+  <style>
+    /* The demo is mounted in a shadow root on #demo-host, so its own
+       page CSS is fully isolated from this chrome. We only size the host. */
+    .demo-host { position: relative; width: 100%; height: 72vh; min-height: 480px; overflow: auto; }
+    .demo-attrib { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+    .demo-attrib a { color: var(--accent-2); }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="app">
+    <div id="sidebar-slot" data-base="../"></div>
+    <main id="main" class="content">
+      <header class="example__header">
+        <div>
+          <a class="example__back" href="../index.html">← All examples</a>
+          <p class="example__meta">html-in-canvas.dev · 2D</p>
+          <h1 class="example__title">Internationalized text</h1>
+          <p class="example__intro">Side-by-side fillText() vs drawElementImage for RTL, CJK and other complex scripts.</p>
+        </div>
+      </header>
+      <section class="stage" aria-label="Demo stage">
+        <div class="demo-host" id="demo-host"></div>
+      </section>
+      <section class="callout" style="margin-top:22px">
+        <h3>About this demo</h3>
+        <p class="demo-attrib">
+          Vendored verbatim from <a href="https://html-in-canvas.dev/demos/internationalized-text/" target="_blank" rel="noopener">html-in-canvas.dev</a>
+          (by En Dash Consulting, MIT-licensed — see <code>demos/UPSTREAM-LICENSE.txt</code>), then mounted in
+          a shadow root inside this page so it runs unmodified. View the
+          <a href="https://github.com/en-dash-consulting/html-in-canvas-dot-dev/tree/main/src/content/demos/internationalized-text" target="_blank" rel="noopener">original source</a>.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Inlined demo source: mounted into the shadow root by demo-embed.js -->
+  <script type="text/plain" id="demo-styles">
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        height: 100%;
+      }
+
+      body,
+      :host {
+        display: block;
+        margin: 0;
+        min-height: 100%;
+        background: #0a0a0f;
+        color: #f0f0f0;
+        font-family: system-ui, -apple-system, sans-serif;
+        padding: 1.5rem;
+        overflow-x: hidden;
+      }
+
+      /* ==========================================================
+         Script examples — the six i18n test cases
+         ========================================================== */
+      .examples {
+        max-width: 900px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .example {
+        background: #14141f;
+        border-radius: 12px;
+        border: 1px solid #282840;
+        overflow: hidden;
+      }
+
+      .example-header {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #282840;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .example-header .script-label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #9a7cff;
+      }
+
+      .example-header .script-name {
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: #f0f0f0;
+      }
+
+      .example-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0;
+      }
+
+      .side {
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .side:first-child {
+        border-right: 1px solid #282840;
+      }
+
+      .side-label {
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .side.filltext .side-label {
+        color: #ff7aa6;
+      }
+
+      .side.html .side-label {
+        color: #00e5b9;
+      }
+
+      canvas {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        display: block;
+        border-radius: 6px;
+        background: #1a1a2a;
+        overflow: hidden;
+      }
+
+      .side-note {
+        font-size: 0.68rem;
+        color: #a0a0b8;
+        line-height: 1.4;
+        font-style: italic;
+      }
+
+      /* ==========================================================
+         Text content inside the HTML-in-Canvas canvases.
+         These elements are styled with CSS and rendered
+         pixel-perfectly by drawElementImage().
+         ========================================================== */
+      .i18n-content {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px 14px;
+        line-height: 1.5;
+        overflow: hidden;
+      }
+
+      .i18n-content.rtl-text {
+        direction: rtl;
+        font-size: 17px;
+        font-family: "Segoe UI", "Tahoma", "Arial", system-ui, sans-serif;
+        text-align: right;
+      }
+
+      .i18n-content.vertical-cjk {
+        writing-mode: vertical-rl;
+        font-size: 17px;
+        font-family: "Noto Sans CJK", "Hiragino Sans", "Yu Gothic",
+          "MS Gothic", system-ui, sans-serif;
+        text-align: start;
+        letter-spacing: 0.05em;
+      }
+
+      .i18n-content.thai-text {
+        font-size: 18px;
+        font-family: "Noto Sans Thai", "Leelawadee UI", "Tahoma", system-ui,
+          sans-serif;
+        text-align: center;
+      }
+
+      .i18n-content.mixed-dir {
+        font-size: 14px;
+        font-family: system-ui, sans-serif;
+        text-align: start;
+        line-height: 1.6;
+      }
+
+      .i18n-content.emoji-text {
+        font-size: 24px;
+        text-align: center;
+        letter-spacing: 0.12em;
+        line-height: 1.5;
+      }
+
+      .i18n-content.ruby-text {
+        font-size: 19px;
+        font-family: "Noto Sans CJK", "Hiragino Sans", "Yu Gothic",
+          "MS Gothic", system-ui, sans-serif;
+        text-align: center;
+      }
+
+      .i18n-content.ruby-text ruby {
+        ruby-position: over;
+      }
+
+      .i18n-content.ruby-text rt {
+        font-size: 0.5em;
+        color: #a0a0b8;
+      }
+
+      @media (max-width: 600px) {
+        .example-body {
+          grid-template-columns: 1fr;
+        }
+
+        .side:first-child {
+          border-right: none;
+          border-bottom: 1px solid #282840;
+        }
+      }
+    
+  </script>
+  <template id="demo-body">
+<div class="examples">
+      <!-- ============================================
+           1. RTL — Arabic & Hebrew
+           fillText() ignores direction: rtl and draws
+           left-to-right. drawElementImage() inherits
+           the browser's bidi algorithm.
+           ============================================ -->
+      <div class="example">
+        <div class="example-header">
+          <span class="script-label">RTL</span>
+          <span class="script-name">Arabic &amp; Hebrew</span>
+        </div>
+        <div class="example-body">
+          <div class="side filltext">
+            <span class="side-label">ctx.fillText()</span>
+            <canvas
+              id="filltext-rtl"
+              width="400"
+              height="175"
+              aria-label="fillText rendering of RTL Arabic and Hebrew text"
+            ></canvas>
+            <span class="side-note"
+              >No bidi algorithm — glyphs render left-to-right, punctuation
+              misplaced.</span
+            >
+          </div>
+          <div class="side html">
+            <span class="side-label">drawElementImage()</span>
+            <canvas
+              id="html-rtl"
+              width="400"
+              height="175"
+              layoutsubtree
+              aria-label="drawElementImage rendering of RTL Arabic and Hebrew text"
+            >
+              <div class="i18n-content rtl-text">
+                <div>
+                  <div lang="ar">مرحباً بالعالم! هذا نص عربي.</div>
+                  <div lang="he" style="margin-top: 8px">
+                    !שלום עולם — טקסט עברי
+                  </div>
+                </div>
+              </div>
+            </canvas>
+            <span class="side-note"
+              >Browser's bidi algorithm handles direction, punctuation, and
+              shaping.</span
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================
+           2. Vertical CJK
+           fillText() has no writing-mode support.
+           drawElementImage() renders vertical-rl with
+           proper character rotation and spacing.
+           ============================================ -->
+      <div class="example">
+        <div class="example-header">
+          <span class="script-label">Vertical</span>
+          <span class="script-name">CJK (Chinese / Japanese / Korean)</span>
+        </div>
+        <div class="example-body">
+          <div class="side filltext">
+            <span class="side-label">ctx.fillText()</span>
+            <canvas
+              id="filltext-cjk"
+              width="400"
+              height="175"
+              aria-label="fillText rendering of vertical CJK text"
+            ></canvas>
+            <span class="side-note"
+              >No writing-mode support — text forced horizontal.</span
+            >
+          </div>
+          <div class="side html">
+            <span class="side-label">drawElementImage()</span>
+            <canvas
+              id="html-cjk"
+              width="400"
+              height="175"
+              layoutsubtree
+              aria-label="drawElementImage rendering of vertical CJK text"
+            >
+              <div class="i18n-content vertical-cjk" lang="ja">
+                <div>
+                  国境の長いトンネルを抜けると雪国であった。
+                </div>
+              </div>
+            </canvas>
+            <span class="side-note"
+              >CSS <code>writing-mode: vertical-rl</code> works natively.</span
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================
+           3. Thai script with stacking diacritics
+           fillText() mispositions vowel marks and
+           tone marks that stack above/below consonants.
+           drawElementImage() uses the browser's text
+           shaping engine for perfect rendering.
+           ============================================ -->
+      <div class="example">
+        <div class="example-header">
+          <span class="script-label">Complex</span>
+          <span class="script-name">Thai Script with Stacking Diacritics</span>
+        </div>
+        <div class="example-body">
+          <div class="side filltext">
+            <span class="side-label">ctx.fillText()</span>
+            <canvas
+              id="filltext-thai"
+              width="400"
+              height="175"
+              aria-label="fillText rendering of Thai text"
+            ></canvas>
+            <span class="side-note"
+              >Stacking marks may misalign — platform-dependent shaping.</span
+            >
+          </div>
+          <div class="side html">
+            <span class="side-label">drawElementImage()</span>
+            <canvas
+              id="html-thai"
+              width="400"
+              height="175"
+              layoutsubtree
+              aria-label="drawElementImage rendering of Thai text"
+            >
+              <div class="i18n-content thai-text" lang="th">
+                สวัสดีครับ ยินดีต้อนรับสู่เว็บไซต์
+              </div>
+            </canvas>
+            <span class="side-note"
+              >Browser's text shaping engine handles all mark
+              positioning.</span
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================
+           4. Mixed-direction text
+           A single paragraph mixing LTR and RTL runs
+           with embedded numbers and punctuation.
+           fillText() cannot handle inline bidi runs.
+           ============================================ -->
+      <div class="example">
+        <div class="example-header">
+          <span class="script-label">Mixed</span>
+          <span class="script-name">Bidirectional Text with Numbers</span>
+        </div>
+        <div class="example-body">
+          <div class="side filltext">
+            <span class="side-label">ctx.fillText()</span>
+            <canvas
+              id="filltext-mixed"
+              width="400"
+              height="175"
+              aria-label="fillText rendering of mixed-direction text"
+            ></canvas>
+            <span class="side-note"
+              >fillText renders a single direction — mixed runs break.</span
+            >
+          </div>
+          <div class="side html">
+            <span class="side-label">drawElementImage()</span>
+            <canvas
+              id="html-mixed"
+              width="400"
+              height="175"
+              layoutsubtree
+              aria-label="drawElementImage rendering of mixed-direction text"
+            >
+              <div class="i18n-content mixed-dir">
+                <div>
+                  The term
+                  <span dir="rtl" lang="ar" style="font-size: 1.1em"
+                    >إنترنت</span
+                  >
+                  (Internet) was adopted in
+                  <span dir="rtl" lang="ar">١٩٩٥</span> and is used
+                  alongside
+                  <span dir="rtl" lang="he" style="font-size: 1.1em"
+                    >אינטרנט</span
+                  >
+                  in multilingual documents.
+                </div>
+              </div>
+            </canvas>
+            <span class="side-note"
+              >Unicode bidi algorithm resolves each embedded run
+              correctly.</span
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================
+           5. Emoji with skin tones and ZWJ sequences
+           fillText() may render broken sequences or
+           fallback glyphs. drawElementImage() uses the
+           browser's emoji rendering pipeline.
+           ============================================ -->
+      <div class="example">
+        <div class="example-header">
+          <span class="script-label">Emoji</span>
+          <span class="script-name">Skin Tones &amp; ZWJ Sequences</span>
+        </div>
+        <div class="example-body">
+          <div class="side filltext">
+            <span class="side-label">ctx.fillText()</span>
+            <canvas
+              id="filltext-emoji"
+              width="400"
+              height="175"
+              aria-label="fillText rendering of emoji with skin tone modifiers"
+            ></canvas>
+            <span class="side-note"
+              >ZWJ sequences may split into separate glyphs.</span
+            >
+          </div>
+          <div class="side html">
+            <span class="side-label">drawElementImage()</span>
+            <canvas
+              id="html-emoji"
+              width="400"
+              height="175"
+              layoutsubtree
+              aria-label="drawElementImage rendering of emoji with skin tone modifiers"
+            >
+              <div class="i18n-content emoji-text">
+                👩🏽‍💻 👨🏿‍🎨 👩🏻‍🔬 🧑🏾‍🍳 👨🏼‍🚀 👩🏽‍⚕️
+              </div>
+            </canvas>
+            <span class="side-note"
+              >Browser's emoji engine composes ZWJ sequences and skin
+              tones.</span
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================
+           6. Ruby annotations (furigana)
+           fillText() has no concept of ruby. HTML <ruby>
+           elements with <rt> render natively via
+           drawElementImage().
+           ============================================ -->
+      <div class="example">
+        <div class="example-header">
+          <span class="script-label">Ruby</span>
+          <span class="script-name">Japanese Furigana Annotations</span>
+        </div>
+        <div class="example-body">
+          <div class="side filltext">
+            <span class="side-label">ctx.fillText()</span>
+            <canvas
+              id="filltext-ruby"
+              width="400"
+              height="175"
+              aria-label="fillText rendering of text needing ruby annotations"
+            ></canvas>
+            <span class="side-note"
+              >No ruby support — annotations drawn inline, breaking
+              flow.</span
+            >
+          </div>
+          <div class="side html">
+            <span class="side-label">drawElementImage()</span>
+            <canvas
+              id="html-ruby"
+              width="400"
+              height="175"
+              layoutsubtree
+              aria-label="drawElementImage rendering of text with ruby annotations"
+            >
+              <div class="i18n-content ruby-text" lang="ja">
+                <ruby>東<rt>ひがし</rt></ruby
+                ><ruby>京<rt>きょう</rt></ruby
+                ><ruby>都<rt>と</rt></ruby
+                >の<ruby>渋<rt>しぶ</rt></ruby
+                ><ruby>谷<rt>や</rt></ruby
+                >で<ruby>会<rt>あ</rt></ruby
+                >いましょう。
+              </div>
+            </canvas>
+            <span class="side-note"
+              >HTML &lt;ruby&gt; and &lt;rt&gt; render with proper
+              positioning.</span
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+  <script type="application/json" id="demo-scripts">[{"body":"\n      // Resolve the script's root: a ShadowRoot when mounted via shadow\n      // DOM, or `document` when this file is served standalone.\n      const root = window.__demoRoot ?? document;\n\n      // =============================================================\n      // SHARED TEXT STRINGS\n      // Used by both the fillText canvases and (implicitly) the HTML\n      // content inside the drawElementImage canvases.\n      // =============================================================\n      const samples = {\n        rtl: {\n          lines: [\n            \"مرحباً بالعالم! هذا نص عربي.\",\n            \"!שלום עולם — טקסט עברי\",\n          ],\n        },\n        cjk: {\n          text: \"国境の長いトンネルを抜けると雪国であった。\",\n        },\n        thai: {\n          text: \"สวัสดีครับ ยินดีต้อนรับสู่เว็บไซต์\",\n        },\n        mixed: {\n          text: 'The term إنترنت (Internet) was adopted in ١٩٩٥ and is used alongside אינטרנט in multilingual documents.',\n        },\n        emoji: {\n          text: \"👩🏽‍💻 👨🏿‍🎨 👩🏻‍🔬 🧑🏾‍🍳 👨🏼‍🚀 👩🏽‍⚕️\",\n        },\n        ruby: {\n          // For fillText, we can only show the base characters\n          // with parenthesized readings inline\n          text: \"東(ひがし)京(きょう)都(と)の渋(しぶ)谷(や)で会(あ)いましょう。\",\n          plain: \"東京都の渋谷で会いましょう。\",\n        },\n      };\n\n      // =============================================================\n      // fillText CANVASES\n      // These demonstrate the limitations: fillText draws a flat\n      // string of glyphs with no bidi, no writing-mode, no ruby,\n      // and platform-dependent shaping.\n      // =============================================================\n\n      function paintFillTextCanvas(canvasId, drawFn) {\n        const canvas = root.getElementById(canvasId);\n        const ctx = canvas.getContext(\"2d\");\n\n        function paint() {\n          const dpr = devicePixelRatio;\n          const w = canvas.width / dpr;\n          const h = canvas.height / dpr;\n          ctx.clearRect(0, 0, w, h);\n          drawFn(ctx, w, h);\n        }\n\n        const ro = new ResizeObserver(([entry]) => {\n          const { width, height } = entry.contentRect;\n          canvas.width = Math.round(width * devicePixelRatio);\n          canvas.height = Math.round(height * devicePixelRatio);\n          ctx.scale(devicePixelRatio, devicePixelRatio);\n          paint();\n        });\n        ro.observe(canvas);\n      }\n\n      // --- 1. RTL (drawn LTR by fillText — wrong!) ---\n      paintFillTextCanvas(\"filltext-rtl\", (ctx, w, h) => {\n        ctx.fillStyle = \"#f0f0f0\";\n        ctx.font = \"20px system-ui, sans-serif\";\n        ctx.textBaseline = \"middle\";\n        ctx.textAlign = \"left\";\n        ctx.fillText(samples.rtl.lines[0], 20, h / 2 - 16);\n        ctx.fillText(samples.rtl.lines[1], 20, h / 2 + 20);\n      });\n\n      // --- 2. Vertical CJK (forced horizontal by fillText) ---\n      paintFillTextCanvas(\"filltext-cjk\", (ctx, w, h) => {\n        ctx.fillStyle = \"#f0f0f0\";\n        ctx.font = '20px \"Noto Sans CJK\", \"Hiragino Sans\", system-ui, sans-serif';\n        ctx.textBaseline = \"middle\";\n        ctx.textAlign = \"center\";\n        // fillText has no writing-mode — text runs horizontally\n        // and overflows or wraps manually\n        const text = samples.cjk.text;\n        const half = Math.ceil(text.length / 2);\n        ctx.fillText(text.slice(0, half), w / 2, h / 2 - 14);\n        ctx.fillText(text.slice(half), w / 2, h / 2 + 18);\n      });\n\n      // --- 3. Thai ---\n      paintFillTextCanvas(\"filltext-thai\", (ctx, w, h) => {\n        ctx.fillStyle = \"#f0f0f0\";\n        ctx.font =\n          '22px \"Noto Sans Thai\", \"Leelawadee UI\", \"Tahoma\", system-ui, sans-serif';\n        ctx.textBaseline = \"middle\";\n        ctx.textAlign = \"center\";\n        ctx.fillText(samples.thai.text, w / 2, h / 2);\n      });\n\n      // --- 4. Mixed direction ---\n      paintFillTextCanvas(\"filltext-mixed\", (ctx, w, h) => {\n        ctx.fillStyle = \"#f0f0f0\";\n        ctx.font = \"16px system-ui, sans-serif\";\n        ctx.textBaseline = \"middle\";\n        ctx.textAlign = \"left\";\n        // fillText treats this as a single LTR run\n        const text = samples.mixed.text;\n        // Rough word-wrap for the flat string\n        const maxW = w - 40;\n        const words = text.split(\" \");\n        let line = \"\";\n        let y = h / 2 - 20;\n        for (const word of words) {\n          const test = line ? line + \" \" + word : word;\n          if (ctx.measureText(test).width > maxW && line) {\n            ctx.fillText(line, 20, y);\n            line = word;\n            y += 24;\n          } else {\n            line = test;\n          }\n        }\n        if (line) ctx.fillText(line, 20, y);\n      });\n\n      // --- 5. Emoji ---\n      paintFillTextCanvas(\"filltext-emoji\", (ctx, w, h) => {\n        ctx.fillStyle = \"#f0f0f0\";\n        ctx.font = \"28px system-ui, sans-serif\";\n        ctx.textBaseline = \"middle\";\n        ctx.textAlign = \"center\";\n        ctx.fillText(samples.emoji.text, w / 2, h / 2);\n      });\n\n      // --- 6. Ruby (shown inline — no annotation support) ---\n      paintFillTextCanvas(\"filltext-ruby\", (ctx, w, h) => {\n        ctx.fillStyle = \"#f0f0f0\";\n        ctx.font =\n          '16px \"Noto Sans CJK\", \"Hiragino Sans\", system-ui, sans-serif';\n        ctx.textBaseline = \"middle\";\n        ctx.textAlign = \"center\";\n        // Show the readings inline in parentheses — the only\n        // option when you have no ruby layout\n        ctx.fillText(samples.ruby.text, w / 2, h / 2 - 10);\n        // Explain the limitation\n        ctx.fillStyle = \"#5a5a70\";\n        ctx.font = \"11px system-ui, sans-serif\";\n        ctx.fillText(\n          \"(readings forced inline — no above-text placement)\",\n          w / 2,\n          h / 2 + 18\n        );\n      });\n\n      // =============================================================\n      // drawElementImage CANVASES\n      // Each HTML canvas uses layoutsubtree + drawElementImage to\n      // render its child HTML. The browser's full text engine handles\n      // bidi, shaping, writing-mode, and ruby positioning.\n      // =============================================================\n\n      function setupHtmlCanvas(canvasId) {\n        const canvas = root.getElementById(canvasId);\n        const ctx = canvas.getContext(\"2d\");\n        const content = canvas.firstElementChild;\n\n        function paint() {\n          // Bitmap is 1:1 with CSS pixels — see memory\n          // project_layoutsubtree_bitmap_layout. Layoutsubtree uses\n          // canvas.width as the layout viewport for child elements.\n          ctx.clearRect(0, 0, canvas.width, canvas.height);\n          const transform = ctx.drawElementImage(content, 0, 0);\n          if (transform) {\n            content.style.transform = transform.toString();\n          }\n        }\n\n        canvas.onpaint = paint;\n\n        const ro = new ResizeObserver(([entry]) => {\n          const { width, height } = entry.contentRect;\n          canvas.width = Math.round(width);\n          canvas.height = Math.round(height);\n          canvas.requestPaint?.();\n        });\n        ro.observe(canvas);\n      }\n\n      setupHtmlCanvas(\"html-rtl\");\n      setupHtmlCanvas(\"html-cjk\");\n      setupHtmlCanvas(\"html-thai\");\n      setupHtmlCanvas(\"html-mixed\");\n      setupHtmlCanvas(\"html-emoji\");\n      setupHtmlCanvas(\"html-ruby\");\n    "}]</script>
+
+  <script src="../assets/sidebar.js" defer></script>
+  <script src="../assets/support-check.js" defer></script>
+  <script src="../assets/code-pane.js" defer></script>
+  <script src="../assets/demo-embed.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>18 · Polyglot rich text — HTML in Canvas</title>
+    <meta name="description" content="Emoji, RTL Arabic, vertical CJK, inline SVG and a focusable input — all painted into a rotating canvas as one rich-text block." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 560px; }
+      canvas.scene { min-height: 560px; }
+
+      /* One rich block: the browser lays out everything — bidi, vertical
+         writing modes, emoji, inline SVG, form controls — and we paint the
+         whole subtree with a single drawElementImage() call. */
+      .poly {
+        width: 520px;
+        padding: 26px 28px;
+        border-radius: 20px;
+        background:
+          radial-gradient(130% 90% at 0% 0%, rgba(124, 92, 255, 0.22), transparent 55%),
+          linear-gradient(180deg, #141a2c, #0a0c14);
+        border: 1px solid rgba(160, 180, 255, 0.2);
+        box-shadow: 0 30px 70px -34px rgba(0, 0, 0, 0.85);
+        color: var(--text);
+        transform-origin: 0 0;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      .poly__title { margin: 0 0 12px; font-size: 25px; font-weight: 700; letter-spacing: -0.02em; }
+      .poly__title a { color: #b9a6ff; text-underline-offset: 3px; }
+      .poly__lead { margin: 0 0 14px; color: var(--text-dim); }
+      .poly__rtl {
+        display: inline-block;
+        direction: rtl;
+        padding: 0 6px;
+        border-radius: 6px;
+        background: rgba(34, 211, 238, 0.12);
+        color: #8be9f5;
+      }
+      .poly__row { display: flex; align-items: center; gap: 16px; margin: 14px 0; }
+      .poly__vertical {
+        writing-mode: vertical-rl;
+        margin: 0;
+        height: 96px;
+        font-size: 20px;
+        letter-spacing: 4px;
+        color: #ffd56b;
+      }
+      .poly__chip {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 13px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--border);
+        font-feature-settings: "liga" 1, "dlig" 1;
+      }
+      .poly__field {
+        display: flex; flex-direction: column; gap: 6px;
+        margin-top: 16px;
+        font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+        color: var(--text-mute);
+      }
+      .poly__field input {
+        background: rgba(4, 7, 14, 0.8);
+        border: 1px solid rgba(150, 170, 230, 0.28);
+        color: var(--text);
+        padding: 10px 12px; border-radius: 10px;
+        font: inherit; font-size: 15px; text-transform: none; letter-spacing: normal;
+        outline: none;
+      }
+      .poly__field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.28); }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 18 · Showcase</p>
+            <h1 class="example__title">Polyglot rich text</h1>
+            <p class="example__intro">
+              The WICG spec's <code>complex-text</code> torture test, dialled up. A single block of
+              <em>everything the browser can lay out</em> — bold and links, emoji, a right-to-left
+              Arabic phrase, vertical Chinese, an inline <code>&lt;svg&gt;</code>, an
+              <code>&lt;img&gt;</code>, OpenType ligatures, and a live text input — painted into a
+              rotating, scaling canvas with one <code>drawElementImage()</code> call. The glyphs stay
+              razor-sharp at any angle, and the input is still focusable on the tilt. Try typing in it.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · rotate + scale → one drawElementImage()</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+
+            <canvas class="scene" id="scene" layoutsubtree>
+              <div class="poly" id="source">
+                <h2 class="poly__title">Hello from
+                  <a href="https://github.com/WICG/html-in-canvas" target="_blank" rel="noopener">html-in-canvas</a> 👋
+                </h2>
+                <p class="poly__lead">
+                  I'm multi-line, <b>formatted</b> text with emoji 😀🎨🚀, a
+                  <span class="poly__rtl" dir="rtl">من فارسی صحبت می‌کنم</span>
+                  right-to-left phrase, and more below.
+                </p>
+                <div class="poly__row">
+                  <p class="poly__vertical" lang="zh">这是垂直文本</p>
+                  <svg width="60" height="60" viewBox="0 0 60 60" aria-label="SVG badge" role="img">
+                    <defs>
+                      <linearGradient id="g18" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0" stop-color="#7c5cff" /><stop offset="1" stop-color="#22d3ee" />
+                      </linearGradient>
+                    </defs>
+                    <circle cx="30" cy="30" r="26" fill="url(#g18)" />
+                    <text x="30" y="36" font-size="16" font-weight="700" text-anchor="middle" fill="#0b0d12">SVG</text>
+                  </svg>
+                  <img width="60" height="60" alt="vector mark"
+                    src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect width='60' height='60' rx='14' fill='%23ff8fc4'/><path d='M14 40 L30 16 L46 40 Z' fill='%230b0d12'/></svg>" />
+                  <span class="poly__chip">ligatures → office difficult</span>
+                </div>
+                <label class="poly__field">Type on the tilted text
+                  <input id="echo" placeholder="it's still a real input" />
+                </label>
+              </div>
+            </canvas>
+
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <div class="controls__group" role="group" aria-label="Sway">
+              <button class="seg" id="sway-on" aria-pressed="true">Sway</button>
+              <button class="seg" id="sway-off" aria-pressed="false">Hold</button>
+            </div>
+            <label class="slider"><span>Rotation</span><input type="range" id="rot" min="-40" max="40" value="-8" /><span class="slider__val" id="rot-val">-8°</span></label>
+            <label class="slider"><span>Scale</span><input type="range" id="scl" min="55" max="135" value="100" /><span class="slider__val" id="scl-val">100%</span></label>
+            <span class="stat" id="stat">—</span>
+            <div class="controls__spacer"></div>
+            <button class="btn btn--ghost" id="snapshot">Save snapshot (PNG)</button>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>Layout you can't fake with fillText()</h3>
+          <p>
+            Drawing internationalised text into a canvas the old way means reimplementing the
+            browser's text engine: bidi reordering, shaping, vertical writing modes, emoji,
+            ligatures. Here the browser does all of it, and <code>drawElementImage()</code> snapshots
+            the result. Because CSS transforms on the source element are ignored when drawing, the
+            rotation and scale come from the canvas's transformation matrix
+            (<code>ctx.rotate()</code> / <code>ctx.scale()</code>); the element is drawn centred with
+            negative-half-size coordinates. The returned matrix is written back to the block's
+            <code>transform</code> so the live DOM — including the focusable input — lines up with
+            the painted, tilted pixels.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script src="../assets/code-pane.js" defer></script>
+    <script>
+      (() => {
+        const canvas   = document.getElementById('scene');
+        const ctx      = canvas.getContext('2d');
+        const source   = document.getElementById('source');
+        const host     = document.getElementById('canvas-host');
+        const fbHost   = document.getElementById('fallback-host');
+        const stat     = document.getElementById('stat');
+        const notice   = document.getElementById('trial-notice');
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+        const snapBtn  = document.getElementById('snapshot');
+
+        const swayOn  = document.getElementById('sway-on');
+        const swayOff = document.getElementById('sway-off');
+        const rotIn   = document.getElementById('rot'), rotVal = document.getElementById('rot-val');
+        const sclIn   = document.getElementById('scl'), sclVal = document.getElementById('scl-val');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        const state = { sway: true, baseDeg: -8, scale: 1.0 };
+        const setPressed = (group, on) => { for (const b of group) b.setAttribute('aria-pressed', b === on ? 'true' : 'false'); };
+        swayOn.addEventListener('click', () => { state.sway = true; setPressed([swayOn, swayOff], swayOn); schedule(); });
+        swayOff.addEventListener('click', () => { state.sway = false; setPressed([swayOn, swayOff], swayOff); schedule(); });
+        rotIn.addEventListener('input', () => { state.baseDeg = +rotIn.value; rotVal.textContent = `${state.baseDeg}°`; schedule(); });
+        sclIn.addEventListener('input', () => { state.scale = +sclIn.value / 100; sclVal.textContent = `${sclIn.value}%`; schedule(); });
+
+        // rAF loop (as in examples 15/16). Calling requestPaint() from inside
+        // onpaint can wedge the compositor, so the frame callback owns drawing
+        // and onpaint is only a "DOM changed — render once" trigger.
+        let rafPending = false;
+        function tick() { rafPending = false; if (paint()) requestFrame(); }
+        function requestFrame() { if (!rafPending && supported) { rafPending = true; requestAnimationFrame(tick); } }
+        function schedule() { requestFrame(); }
+
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(360, Math.floor(r.width));
+          const h = Math.max(540, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          schedule();
+        }
+        new ResizeObserver(resize).observe(host);
+
+        const t0 = performance.now();
+        let paints = 0, fpsT = performance.now(), fpsAt = 0;
+
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          ctx.reset();
+
+          const bg = ctx.createLinearGradient(0, 0, 0, h);
+          bg.addColorStop(0, '#0c1020');
+          bg.addColorStop(1, '#06080f');
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          const elapsed = (performance.now() - t0) / 1000;
+          const swayDeg = state.sway ? Math.sin(elapsed * 0.8) * 7 : 0;
+          const angle = (state.baseDeg + swayDeg) * Math.PI / 180;
+
+          const bw = source.offsetWidth || 520;
+          const bh = source.offsetHeight || 320;
+
+          try {
+            ctx.translate(w / 2, h / 2);
+            ctx.rotate(angle);
+            ctx.scale(state.scale, state.scale);
+            const tf = ctx.drawElementImage(source, -bw / 2, -bh / 2);
+            source.style.transform = tf.toString();
+          } catch (err) {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+            return;
+          }
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            const fps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            const deg = (state.baseDeg + swayDeg).toFixed(0);
+            stat.textContent = `${fps.toFixed(0)} fps · ${deg}° · ${(state.scale * 100) | 0}%`;
+            fpsT = now; fpsAt = paints;
+          }
+
+          return state.sway;
+        }
+
+        if (supported) { canvas.onpaint = () => requestFrame(); resize(); }
+        else mountFallback();
+
+        snapBtn.addEventListener('click', () => {
+          schedule();
+          requestAnimationFrame(() => {
+            const link = document.createElement('a');
+            link.download = `polyglot-text-${performance.now() | 0}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+          });
+        });
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          source.style.transform = '';
+          fbHost.append(source);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong'); strong.textContent = 'drawElementImage() not detected.';
+          const code = document.createElement('code'); code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(strong, ' Enable ', code, ' (Chrome 148+) to paint the block into a rotating canvas. Showing it as plain DOM.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

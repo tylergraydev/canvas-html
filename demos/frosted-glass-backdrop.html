@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Frosted glass backdrop — HTML in Canvas</title>
+  <meta name="description" content="A draggable frosted-glass panel with custom gaussian, directional and tilt-shift blur." />
+  <link rel="stylesheet" href="../assets/styles.css" />
+  <link rel="stylesheet" href="../assets/example.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+  <style>
+    /* The demo is mounted in a shadow root on #demo-host, so its own
+       page CSS is fully isolated from this chrome. We only size the host. */
+    .demo-host { position: relative; width: 100%; height: 72vh; min-height: 480px; overflow: auto; }
+    .demo-attrib { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+    .demo-attrib a { color: var(--accent-2); }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="app">
+    <div id="sidebar-slot" data-base="../"></div>
+    <main id="main" class="content">
+      <header class="example__header">
+        <div>
+          <a class="example__back" href="../index.html">← All examples</a>
+          <p class="example__meta">html-in-canvas.dev · 2D</p>
+          <h1 class="example__title">Frosted glass backdrop</h1>
+          <p class="example__intro">A draggable frosted-glass panel with custom gaussian, directional and tilt-shift blur.</p>
+        </div>
+      </header>
+      <section class="stage" aria-label="Demo stage">
+        <div class="demo-host" id="demo-host"></div>
+      </section>
+      <section class="callout" style="margin-top:22px">
+        <h3>About this demo</h3>
+        <p class="demo-attrib">
+          Vendored verbatim from <a href="https://html-in-canvas.dev/demos/frosted-glass-backdrop/" target="_blank" rel="noopener">html-in-canvas.dev</a>
+          (by En Dash Consulting, MIT-licensed — see <code>demos/UPSTREAM-LICENSE.txt</code>), then mounted in
+          a shadow root inside this page so it runs unmodified. View the
+          <a href="https://github.com/en-dash-consulting/html-in-canvas-dot-dev/tree/main/src/content/demos/frosted-glass-backdrop" target="_blank" rel="noopener">original source</a>.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Inlined demo source: mounted into the shadow root by demo-embed.js -->
+  <script type="text/plain" id="demo-styles">
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        height: 100%;
+      }
+
+      body,
+      :host {
+        margin: 0;
+        min-height: 100%;
+        background: #0a0a0f;
+        color: #f0f0f0;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 1.5rem 1rem;
+        overflow-x: hidden;
+      }
+
+      h1 {
+        font-size: 1.15rem;
+        font-weight: 700;
+        text-align: center;
+        margin-bottom: 0.25rem;
+      }
+
+      .page-subtitle {
+        text-align: center;
+        font-size: 0.8rem;
+        color: #b0b0c8;
+        margin-bottom: 1.5rem;
+        max-width: 520px;
+        line-height: 1.4;
+      }
+
+      /* ============================================================
+         Scene
+         ============================================================ */
+      .scene {
+        position: relative;
+        width: 600px;
+        max-width: 100%;
+      }
+
+      /*
+       * The canvas is a CSS grid with a single named "stack" area.
+       * Both children (#bg-layer and #frost-panel) live in that area
+       * so they overlay each other. We can't use `position: absolute`
+       * on the direct children — Chrome's <canvas layoutsubtree> forces
+       * direct children to `position: static` regardless of CSS — so
+       * grid stacking + transform offsets are the workaround.
+       */
+      #canvas {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        display: grid;
+        grid-template-areas: "stack";
+        border-radius: 16px;
+        background: #0d0d1a;
+        position: relative;
+      }
+
+      /* ============================================================
+         Background layer — 2x2 card grid
+         ============================================================ */
+      #bg-layer {
+        grid-area: stack;
+        width: 100%;
+        height: 100%;
+        padding: 20px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        gap: 14px;
+        overflow: hidden;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+      }
+
+      .bg-card {
+        border-radius: 14px;
+        padding: 18px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* -- Weather card ------------------------------------------ */
+      .card-weather {
+        background: linear-gradient(135deg, #1a3a5c 0%, #0d2a4a 50%, #0a1628 100%);
+        border: 1px solid rgba(59, 130, 246, 0.2);
+      }
+
+      .sun-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #fbbf24, #f59e0b);
+        box-shadow: 0 0 16px rgba(251, 191, 36, 0.4);
+        margin-bottom: 8px;
+      }
+
+      .weather-temp {
+        font-size: 2.6rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #60a5fa, #3b82f6);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+        margin-bottom: 4px;
+      }
+
+      .weather-city {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin-bottom: 2px;
+      }
+
+      .weather-detail {
+        font-size: 0.65rem;
+        color: #475569;
+      }
+
+      /* -- Music card --------------------------------------------- */
+      .card-music {
+        background: linear-gradient(
+          135deg,
+          #2d1854 0%,
+          #1a0e3e 50%,
+          #110a2e 100%
+        );
+        border: 1px solid rgba(139, 92, 246, 0.2);
+      }
+
+      .album-art {
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #f59e0b, #ef4444, #8b5cf6);
+        margin-bottom: 8px;
+        flex-shrink: 0;
+      }
+
+      .track-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 2px;
+      }
+
+      .track-artist {
+        font-size: 0.68rem;
+        color: #a78bfa;
+        margin-bottom: 10px;
+      }
+
+      .progress-bar {
+        height: 3px;
+        background: #2a2050;
+        border-radius: 2px;
+        margin-bottom: 10px;
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        width: 35%;
+        height: 100%;
+        background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+        border-radius: 2px;
+      }
+
+      .playback {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 16px;
+        color: #c4b5fd;
+      }
+
+      .play-circle {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: #8b5cf6;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .play-tri {
+        width: 0;
+        height: 0;
+        border-left: 9px solid #fff;
+        border-top: 5px solid transparent;
+        border-bottom: 5px solid transparent;
+        margin-left: 2px;
+      }
+
+      .skip-icon {
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: -1px;
+      }
+
+      /* -- Notifications card ------------------------------------- */
+      .card-notif {
+        background: linear-gradient(135deg, #1a1a30 0%, #12121f 100%);
+        border: 1px solid #282840;
+      }
+
+      .notif-header {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #8a8aaf;
+        margin-bottom: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .notif-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .notif-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .notif-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin-top: 3px;
+        flex-shrink: 0;
+      }
+
+      .notif-dot.green {
+        background: #00e5b9;
+      }
+      .notif-dot.purple {
+        background: #8b5cf6;
+      }
+      .notif-dot.amber {
+        background: #f59e0b;
+      }
+
+      .notif-text {
+        font-size: 0.7rem;
+        color: #c0c0d0;
+        line-height: 1.3;
+      }
+
+      .notif-time {
+        font-size: 0.58rem;
+        color: #9a9ab8;
+        margin-top: 1px;
+      }
+
+      /* -- Chart card --------------------------------------------- */
+      .card-chart {
+        background: linear-gradient(
+          135deg,
+          #0f2027 0%,
+          #0a1a1a 50%,
+          #0d1117 100%
+        );
+        border: 1px solid rgba(0, 229, 185, 0.15);
+      }
+
+      .chart-title {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #8a8aaf;
+        margin-bottom: 10px;
+      }
+
+      .chart-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 5px;
+        height: 70px;
+        margin-bottom: 5px;
+      }
+
+      .bar {
+        flex: 1;
+        border-radius: 3px 3px 0 0;
+        background: linear-gradient(180deg, #00e5b9, #00bd81);
+        min-height: 3px;
+      }
+
+      .chart-labels {
+        display: flex;
+        gap: 5px;
+      }
+
+      .chart-labels span {
+        flex: 1;
+        text-align: center;
+        font-size: 0.55rem;
+        color: #9a9ab8;
+      }
+
+      /* ============================================================
+         Frost panel (positioned inside canvas, draggable)
+         ============================================================
+         Same grid cell as #bg-layer — overlaid via the "stack" area.
+         Position offset is via transform because position:absolute
+         doesn't work on direct canvas children (see #canvas comment).
+         The drag handler updates --panel-x / --panel-y custom props.
+       */
+      #frost-panel {
+        grid-area: stack;
+        justify-self: start;
+        align-self: start;
+        --panel-x: 170px;
+        --panel-y: 115px;
+        transform: translate(var(--panel-x), var(--panel-y));
+        width: 240px;
+        background: transparent;
+        cursor: grab;
+        user-select: none;
+        -webkit-user-select: none;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+      }
+
+      #frost-panel.dragging {
+        cursor: grabbing;
+      }
+
+      .frost-inner {
+        padding: 18px;
+        border-radius: 16px;
+        background: transparent;
+      }
+
+      .frost-grip {
+        display: flex;
+        justify-content: center;
+        gap: 3px;
+        margin-bottom: 10px;
+      }
+
+      .frost-grip span {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.25);
+      }
+
+      .frost-title {
+        font-size: 0.9rem;
+        font-weight: 700;
+        text-align: center;
+        margin-bottom: 3px;
+        color: #f0f0f0;
+      }
+
+      .frost-desc {
+        font-size: 0.64rem;
+        color: rgba(255, 255, 255, 0.55);
+        text-align: center;
+        line-height: 1.45;
+        margin-bottom: 14px;
+      }
+
+      .frost-toggles {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 7px;
+        margin-bottom: 14px;
+      }
+
+      .frost-toggle {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 10px 4px 8px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .toggle-icon {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.65rem;
+        font-weight: 700;
+      }
+
+      .toggle-icon.blue {
+        background: rgba(59, 130, 246, 0.3);
+        color: #60a5fa;
+      }
+
+      .toggle-icon.green {
+        background: rgba(0, 229, 185, 0.3);
+        color: #00e5b9;
+      }
+
+      .toggle-icon.purple {
+        background: rgba(139, 92, 246, 0.3);
+        color: #a78bfa;
+      }
+
+      .toggle-label {
+        font-size: 0.55rem;
+        color: rgba(255, 255, 255, 0.45);
+      }
+
+      .frost-badge {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        font-size: 0.58rem;
+        color: rgba(0, 229, 185, 0.7);
+      }
+
+      .badge-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: #00e5b9;
+      }
+
+      /* ============================================================
+         Controls
+         ============================================================ */
+      .controls {
+        margin-top: 1rem;
+        max-width: 600px;
+        width: 100%;
+        padding: 0.85rem 1rem;
+        background: #14141f;
+        border: 1px solid #282840;
+        border-radius: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.85rem;
+        align-items: flex-start;
+      }
+
+      .control-group {
+        flex: 1;
+        min-width: 120px;
+      }
+
+      .control-group label {
+        display: block;
+        font-size: 0.68rem;
+        color: #b0b0c8;
+        margin-bottom: 5px;
+      }
+
+      .mode-buttons {
+        display: flex;
+        gap: 4px;
+      }
+
+      .mode-btn {
+        flex: 1;
+        padding: 5px 6px;
+        border: 1px solid #333355;
+        border-radius: 7px;
+        background: #1a1a30;
+        color: #8a8aaf;
+        font-family: "Inter", sans-serif;
+        font-size: 0.62rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .mode-btn:hover {
+        background: #252540;
+        color: #f0f0f0;
+      }
+
+      .mode-btn.active {
+        background: rgba(108, 65, 240, 0.2);
+        border-color: rgba(108, 65, 240, 0.4);
+        color: #a78bfa;
+      }
+
+      input[type="range"] {
+        width: 100%;
+        height: 4px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: #282840;
+        border-radius: 2px;
+        outline: none;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #6c41f0;
+        cursor: pointer;
+      }
+
+      /* ============================================================
+         Hint + pipeline info
+         ============================================================ */
+      .hint {
+        margin-top: 1rem;
+        font-size: 0.7rem;
+        color: #9a9ab8;
+        text-align: center;
+      }
+
+      .hint kbd {
+        display: inline-block;
+        padding: 0.1rem 0.35rem;
+        background: #1a1a30;
+        border: 1px solid #333;
+        border-radius: 3px;
+        font-family: inherit;
+        font-size: 0.65rem;
+        color: #b0b0c8;
+      }
+
+      .pipeline-info {
+        margin-top: 1rem;
+        max-width: 600px;
+        width: 100%;
+        padding: 0.85rem 1rem;
+        background: #14141f;
+        border: 1px solid #282840;
+        border-radius: 10px;
+        font-size: 0.72rem;
+        color: #b0b0c8;
+        line-height: 1.55;
+      }
+
+      .pipeline-info p {
+        margin-bottom: 0.3rem;
+      }
+
+      .pipeline-info p:last-child {
+        margin-bottom: 0;
+      }
+
+      .pipeline-info strong {
+        color: #8a8aaf;
+      }
+
+      .pipeline-info .hl {
+        color: #00e5b9;
+      }
+
+      .pipeline-info code {
+        color: #9a7cff;
+        font-family: "Courier New", monospace;
+        font-size: 0.68rem;
+      }
+
+      .pipeline-info .note {
+        color: #8a8aa0;
+        font-size: 0.65rem;
+        margin-top: 0.4rem;
+      }
+
+      @media (max-width: 640px) {
+        body,
+        :host {
+          padding: 1rem 0.75rem;
+        }
+
+        #bg-layer {
+          padding: 12px;
+          gap: 10px;
+        }
+
+        .bg-card {
+          padding: 12px;
+        }
+
+        .weather-temp {
+          font-size: 2rem;
+        }
+
+        #frost-panel {
+          left: 50px;
+          top: 70px;
+          width: 200px;
+        }
+
+        .frost-inner {
+          padding: 14px;
+        }
+
+        .controls {
+          flex-direction: column;
+        }
+      }
+    
+  </script>
+  <template id="demo-body">
+<h1>Frosted Glass Backdrop</h1>
+    <p class="page-subtitle">
+      Drag the frosted panel over the cards. Switch between blur modes that go
+      beyond CSS backdrop-filter — directional blur, tilt-shift, and custom
+      gaussian kernels with color tinting.
+    </p>
+
+    <div class="scene" id="scene">
+      <canvas id="canvas" layoutsubtree>
+        <!-- Background card grid -->
+        <div id="bg-layer">
+          <!-- Weather -->
+          <div class="bg-card card-weather">
+            <div class="sun-icon"></div>
+            <div class="weather-temp">24°</div>
+            <div class="weather-city">Los Angeles, CA</div>
+            <div class="weather-detail">H: 28° L: 18° | UV 7</div>
+          </div>
+
+          <!-- Music -->
+          <div class="bg-card card-music">
+            <div class="album-art"></div>
+            <div class="track-title">Midnight City</div>
+            <div class="track-artist">M83</div>
+            <div class="progress-bar"><div class="progress-fill"></div></div>
+            <div class="playback">
+              <span class="skip-icon">|&lt;</span>
+              <div class="play-circle"><div class="play-tri"></div></div>
+              <span class="skip-icon">&gt;|</span>
+            </div>
+          </div>
+
+          <!-- Notifications -->
+          <div class="bg-card card-notif">
+            <div class="notif-header">Notifications</div>
+            <div class="notif-item">
+              <div class="notif-dot green"></div>
+              <div>
+                <div class="notif-text">Build deployed</div>
+                <div class="notif-time">2 min ago</div>
+              </div>
+            </div>
+            <div class="notif-item">
+              <div class="notif-dot purple"></div>
+              <div>
+                <div class="notif-text">New comment on PR #42</div>
+                <div class="notif-time">15 min ago</div>
+              </div>
+            </div>
+            <div class="notif-item">
+              <div class="notif-dot amber"></div>
+              <div>
+                <div class="notif-text">Security scan passed</div>
+                <div class="notif-time">1 hr ago</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chart -->
+          <div class="bg-card card-chart">
+            <div class="chart-title">Weekly Revenue</div>
+            <div class="chart-bars">
+              <div class="bar" style="height: 40%"></div>
+              <div class="bar" style="height: 65%"></div>
+              <div class="bar" style="height: 45%"></div>
+              <div class="bar" style="height: 80%"></div>
+              <div class="bar" style="height: 55%"></div>
+              <div class="bar" style="height: 92%"></div>
+              <div class="bar" style="height: 70%"></div>
+            </div>
+            <div class="chart-labels">
+              <span>M</span><span>T</span><span>W</span><span>T</span
+              ><span>F</span><span>S</span><span>S</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Frost panel -->
+        <div id="frost-panel">
+          <div class="frost-inner" id="frost-content">
+            <div class="frost-grip">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="frost-title">Control Center</div>
+            <div class="frost-desc">
+              Custom blur composited between HTML layers
+            </div>
+            <div class="frost-toggles">
+              <div class="frost-toggle">
+                <div class="toggle-icon blue">W</div>
+                <span class="toggle-label">WiFi</span>
+              </div>
+              <div class="frost-toggle">
+                <div class="toggle-icon green">B</div>
+                <span class="toggle-label">Bluetooth</span>
+              </div>
+              <div class="frost-toggle">
+                <div class="toggle-icon purple">A</div>
+                <span class="toggle-label">AirDrop</span>
+              </div>
+            </div>
+            <div class="frost-badge">
+              <span class="badge-dot"></span>
+              Canvas Composited
+            </div>
+          </div>
+        </div>
+      </canvas>
+    </div>
+
+    <p class="hint">
+      <kbd>drag</kbd> the panel to reveal the blur over different content
+    </p>
+
+    <!-- Controls -->
+    <div class="controls" id="controls">
+      <div class="control-group">
+        <label>Blur Mode</label>
+        <div class="mode-buttons" id="mode-buttons">
+          <button class="mode-btn active" data-mode="gaussian">Gaussian</button>
+          <button class="mode-btn" data-mode="directional">Directional</button>
+          <button class="mode-btn" data-mode="tiltshift">Tilt-Shift</button>
+        </div>
+      </div>
+      <div class="control-group">
+        <label for="radius-slider">Radius: <span id="radius-value">12</span>px</label>
+        <input type="range" id="radius-slider" min="2" max="30" value="12" />
+      </div>
+      <div class="control-group" id="angle-group" style="display: none">
+        <label for="angle-slider">Angle: <span id="angle-value">0</span>&deg;</label>
+        <input type="range" id="angle-slider" min="0" max="360" value="0" />
+      </div>
+      <div class="control-group" id="focus-group" style="display: none">
+        <label for="focus-slider">Focus: <span id="focus-value">50</span>%</label>
+        <input type="range" id="focus-slider" min="10" max="90" value="50" />
+      </div>
+    </div>
+
+    <div class="pipeline-info">
+      <p>
+        <strong>1.</strong> Background cards live inside a
+        <code>&lt;canvas layoutsubtree&gt;</code> — fully styled with CSS
+      </p>
+      <p>
+        <strong>2.</strong>
+        <span class="hl">drawElementImage()</span> captures the background layer
+        as canvas pixels
+      </p>
+      <p>
+        <strong>3.</strong> The region behind the frost panel is processed
+        through a <span class="hl">custom WebGL blur shader</span>
+      </p>
+      <p>
+        <strong>4.</strong> Blurred pixels + color tint are composited back,
+        then the panel's HTML content is drawn on top via
+        <span class="hl">drawElementImage()</span>
+      </p>
+      <p class="note">
+        CSS backdrop-filter can only do standard gaussian blur. This demo
+        applies directional blur, tilt-shift, and custom kernels — only possible
+        with HTML-in-Canvas compositing between layers.
+      </p>
+    </div>
+  </template>
+  <script type="application/json" id="demo-scripts">[{"body":"\n      // Resolve the script's root: a ShadowRoot when mounted via shadow\n      // DOM, or `document` when this file is served standalone.\n      const root = window.__demoRoot ?? document;\n      const $ = (id) => root.getElementById(id);\n\n      /* ==============================================================\n         DOM references\n         ============================================================== */\n      const scene = $(\"scene\");\n      const canvas = $(\"canvas\");\n      const ctx = canvas.getContext(\"2d\");\n      const bgLayer = $(\"bg-layer\");\n      const frostPanel = $(\"frost-panel\");\n      const frostContent = $(\"frost-content\");\n\n      /* ==============================================================\n         State\n         ============================================================== */\n      let blurMode = \"gaussian\";\n      let blurRadius = 12;\n      let blurAngle = 0;\n      let focusY = 0.5;\n\n      /* ==============================================================\n         Offscreen canvases for blur processing\n         ============================================================== */\n      const tempCanvas = document.createElement(\"canvas\");\n      const tempCtx = tempCanvas.getContext(\"2d\");\n\n      const blurCanvas = document.createElement(\"canvas\");\n      const gl = blurCanvas.getContext(\"webgl\", {\n        premultipliedAlpha: false,\n        preserveDrawingBuffer: true,\n        alpha: true,\n      });\n\n      if (!gl) {\n        const msg = document.createElement(\"p\");\n        msg.textContent = \"WebGL is not available in this browser.\";\n        msg.style.cssText = \"padding:2rem;color:#f44\";\n        canvas.replaceWith(msg);\n        throw new Error(\"WebGL unavailable\");\n      }\n\n      /* ==============================================================\n         WebGL shader — configurable gaussian blur\n         ============================================================== */\n      const VERT_SRC = `\nattribute vec2 a_position;\nvarying vec2 v_uv;\nvoid main() {\n  v_uv = a_position * 0.5 + 0.5;\n  v_uv.y = 1.0 - v_uv.y;\n  gl_Position = vec4(a_position, 0.0, 1.0);\n}`;\n\n      const FRAG_SRC = `\nprecision highp float;\n\nuniform sampler2D u_image;\nuniform vec2 u_resolution;\nuniform vec2 u_direction;\nuniform float u_radius;\nuniform float u_tiltshift;\nuniform float u_focusY;\nuniform float u_focusRange;\n\nvarying vec2 v_uv;\n\nvoid main() {\n  float radius = u_radius;\n\n  /* Tilt-shift: modulate blur radius by distance from focus line */\n  if (u_tiltshift > 0.5) {\n    float dist = abs(v_uv.y - u_focusY);\n    float factor = smoothstep(0.0, u_focusRange, dist);\n    radius *= factor;\n  }\n\n  /* Skip blur for negligible radius */\n  if (radius < 0.5) {\n    gl_FragColor = texture2D(u_image, v_uv);\n    return;\n  }\n\n  vec2 texel = u_direction / u_resolution;\n  vec4 color = vec4(0.0);\n  float total = 0.0;\n  float sigma = max(radius * 0.4, 1.0);\n  float coeff = -0.5 / (sigma * sigma);\n\n  /* 25-tap weighted gaussian sampling */\n  for (int i = -12; i <= 12; i++) {\n    float fi = float(i);\n    float offset = fi * (radius / 12.0);\n    float weight = exp(offset * offset * coeff);\n    vec2 sampleUV = clamp(v_uv + texel * offset, 0.0, 1.0);\n    color += texture2D(u_image, sampleUV) * weight;\n    total += weight;\n  }\n\n  gl_FragColor = color / total;\n}`;\n\n      /* ----------------------------------------------------------\n         Shader compilation helpers\n         ---------------------------------------------------------- */\n      function compileShader(type, src) {\n        const s = gl.createShader(type);\n        gl.shaderSource(s, src);\n        gl.compileShader(s);\n        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {\n          const log = gl.getShaderInfoLog(s);\n          gl.deleteShader(s);\n          throw new Error(\"Shader: \" + log);\n        }\n        return s;\n      }\n\n      function linkProgram(vs, fs) {\n        const p = gl.createProgram();\n        gl.attachShader(p, vs);\n        gl.attachShader(p, fs);\n        gl.linkProgram(p);\n        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {\n          const log = gl.getProgramInfoLog(p);\n          gl.deleteProgram(p);\n          throw new Error(\"Program: \" + log);\n        }\n        return p;\n      }\n\n      /* Build the blur program */\n      const vsObj = compileShader(gl.VERTEX_SHADER, VERT_SRC);\n      const fsObj = compileShader(gl.FRAGMENT_SHADER, FRAG_SRC);\n      const program = linkProgram(vsObj, fsObj);\n      gl.deleteShader(vsObj);\n      gl.deleteShader(fsObj);\n\n      /* Uniform & attribute locations */\n      const aPosition = gl.getAttribLocation(program, \"a_position\");\n      const uImage = gl.getUniformLocation(program, \"u_image\");\n      const uResolution = gl.getUniformLocation(program, \"u_resolution\");\n      const uDirection = gl.getUniformLocation(program, \"u_direction\");\n      const uRadius = gl.getUniformLocation(program, \"u_radius\");\n      const uTiltshift = gl.getUniformLocation(program, \"u_tiltshift\");\n      const uFocusY = gl.getUniformLocation(program, \"u_focusY\");\n      const uFocusRange = gl.getUniformLocation(program, \"u_focusRange\");\n\n      /* Full-screen quad buffer */\n      const quadBuf = gl.createBuffer();\n      gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);\n      gl.bufferData(\n        gl.ARRAY_BUFFER,\n        new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),\n        gl.STATIC_DRAW,\n      );\n\n      /* Source texture (receives the extracted frost region) */\n      const srcTex = gl.createTexture();\n      gl.bindTexture(gl.TEXTURE_2D, srcTex);\n      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);\n      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);\n      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);\n      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);\n\n      /* Framebuffer texture (for two-pass separable blur) */\n      const fbTex = gl.createTexture();\n      gl.bindTexture(gl.TEXTURE_2D, fbTex);\n      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);\n      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);\n      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);\n      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);\n\n      const fb = gl.createFramebuffer();\n      let fbWidth = 0;\n      let fbHeight = 0;\n\n      function ensureFramebuffer(w, h) {\n        if (w === fbWidth && h === fbHeight) return;\n        fbWidth = w;\n        fbHeight = h;\n        gl.bindTexture(gl.TEXTURE_2D, fbTex);\n        gl.texImage2D(\n          gl.TEXTURE_2D,\n          0,\n          gl.RGBA,\n          w,\n          h,\n          0,\n          gl.RGBA,\n          gl.UNSIGNED_BYTE,\n          null,\n        );\n        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);\n        gl.framebufferTexture2D(\n          gl.FRAMEBUFFER,\n          gl.COLOR_ATTACHMENT0,\n          gl.TEXTURE_2D,\n          fbTex,\n          0,\n        );\n        gl.bindFramebuffer(gl.FRAMEBUFFER, null);\n      }\n\n      /* ----------------------------------------------------------\n         Execute a single blur pass\n         ---------------------------------------------------------- */\n      function blurPass(\n        inputTex,\n        outputFB,\n        w,\n        h,\n        dirX,\n        dirY,\n        radius,\n        tiltshift,\n        focusYVal,\n        focusRange,\n      ) {\n        gl.bindFramebuffer(gl.FRAMEBUFFER, outputFB);\n        gl.viewport(0, 0, w, h);\n        gl.useProgram(program);\n\n        gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);\n        gl.enableVertexAttribArray(aPosition);\n        gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);\n\n        gl.activeTexture(gl.TEXTURE0);\n        gl.bindTexture(gl.TEXTURE_2D, inputTex);\n        gl.uniform1i(uImage, 0);\n\n        gl.uniform2f(uResolution, w, h);\n        gl.uniform2f(uDirection, dirX, dirY);\n        gl.uniform1f(uRadius, radius);\n        gl.uniform1f(uTiltshift, tiltshift);\n        gl.uniform1f(uFocusY, focusYVal);\n        gl.uniform1f(uFocusRange, focusRange);\n\n        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);\n      }\n\n      /* ----------------------------------------------------------\n         Process blur on the extracted region (in tempCanvas)\n         ---------------------------------------------------------- */\n      function processBlur(w, h) {\n        blurCanvas.width = w;\n        blurCanvas.height = h;\n        ensureFramebuffer(w, h);\n\n        /* Upload the extracted region */\n        gl.bindTexture(gl.TEXTURE_2D, srcTex);\n        gl.texImage2D(\n          gl.TEXTURE_2D,\n          0,\n          gl.RGBA,\n          gl.RGBA,\n          gl.UNSIGNED_BYTE,\n          tempCanvas,\n        );\n\n        const r = blurRadius * devicePixelRatio;\n        const ts = blurMode === \"tiltshift\" ? 1.0 : 0.0;\n        const fy = focusY;\n        const fr = 0.3;\n\n        if (blurMode === \"directional\") {\n          /* Single pass along the angle direction */\n          const rad = (blurAngle * Math.PI) / 180;\n          blurPass(\n            srcTex,\n            null,\n            w,\n            h,\n            Math.cos(rad),\n            Math.sin(rad),\n            r * 1.4,\n            0.0,\n            0.5,\n            0.3,\n          );\n        } else {\n          /* Two-pass separable: horizontal → framebuffer, vertical → screen */\n          blurPass(srcTex, fb, w, h, 1.0, 0.0, r, ts, fy, fr);\n          blurPass(fbTex, null, w, h, 0.0, 1.0, r, ts, fy, fr);\n        }\n      }\n\n      /* ==============================================================\n         Canvas paint callback — multi-layer compositing\n         ============================================================== */\n      canvas.onpaint = () => {\n        const dpr = devicePixelRatio;\n        const cssW = canvas.clientWidth;\n        const cssH = canvas.clientHeight;\n        const w = canvas.width;\n        const h = canvas.height;\n\n        if (w === 0 || h === 0) return;\n\n        /* 1. Clear */\n        ctx.clearRect(0, 0, w, h);\n\n        /* 2. Draw background cards */\n        ctx.drawElementImage(bgLayer, 0, 0, cssW, cssH);\n\n        /* 3. Measure frost panel in CSS pixels.\n         * panelX/panelY are the logical position tracked in JS — the\n         * panel's CSS layout position is at (0,0) of the canvas grid\n         * cell, with a transform offsetting the visual rendering.\n         * offsetWidth/offsetHeight still report the panel's box size. */\n        const px = panelX;\n        const py = panelY;\n        const pw = frostPanel.offsetWidth;\n        const ph = frostPanel.offsetHeight;\n\n        if (pw <= 0 || ph <= 0) return;\n\n        /* Device-pixel coordinates */\n        const dpx = Math.round(px * dpr);\n        const dpy = Math.round(py * dpr);\n        const dpw = Math.round(pw * dpr);\n        const dph = Math.round(ph * dpr);\n\n        /* 4. Extract the region behind the frost panel */\n        const sx = Math.max(0, dpx);\n        const sy = Math.max(0, dpy);\n        const ex = Math.min(w, dpx + dpw);\n        const ey = Math.min(h, dpy + dph);\n        const sw = ex - sx;\n        const sh = ey - sy;\n\n        if (sw <= 0 || sh <= 0) return;\n\n        tempCanvas.width = dpw;\n        tempCanvas.height = dph;\n        tempCtx.clearRect(0, 0, dpw, dph);\n        tempCtx.drawImage(canvas, sx, sy, sw, sh, sx - dpx, sy - dpy, sw, sh);\n\n        /* 5. Blur via WebGL */\n        processBlur(dpw, dph);\n\n        /* 6. Composite blurred backdrop + tint + border */\n        ctx.save();\n        ctx.beginPath();\n        ctx.roundRect(px, py, pw, ph, 16);\n        ctx.clip();\n\n        /* Draw the blurred image */\n        ctx.drawImage(blurCanvas, 0, 0, dpw, dph, px, py, pw, ph);\n\n        /* Color tint overlay — dark blue-purple for a glassy feel */\n        ctx.fillStyle = \"rgba(16, 16, 40, 0.35)\";\n        ctx.fill();\n\n        /* Subtle gradient highlight (light from above) */\n        const grad = ctx.createLinearGradient(px, py, px, py + ph);\n        grad.addColorStop(0, \"rgba(255, 255, 255, 0.06)\");\n        grad.addColorStop(0.5, \"rgba(255, 255, 255, 0.0)\");\n        grad.addColorStop(1, \"rgba(255, 255, 255, 0.02)\");\n        ctx.fillStyle = grad;\n        ctx.fill();\n\n        /* Border */\n        ctx.strokeStyle = \"rgba(255, 255, 255, 0.14)\";\n        ctx.lineWidth = 1;\n        ctx.stroke();\n\n        ctx.restore();\n\n        /* 7. Draw frost panel content on top.\n         * drawElementImage requires a direct child of the canvas, so we\n         * draw the panel itself (which is transparent) and let its\n         * child .frost-inner come along for the ride. */\n        ctx.drawElementImage(frostPanel, px, py, pw, ph);\n      };\n\n      /* ==============================================================\n         Resize observer\n         ============================================================== */\n      function syncSize() {\n        const rect = canvas.getBoundingClientRect();\n        const dpr = devicePixelRatio;\n        const w = Math.round(rect.width * dpr);\n        const h = Math.round(rect.height * dpr);\n\n        if (canvas.width !== w || canvas.height !== h) {\n          canvas.width = w;\n          canvas.height = h;\n          ctx.scale(dpr, dpr);\n          requestRepaint();\n        }\n      }\n\n      function requestRepaint() {\n        if (canvas.requestPaint) canvas.requestPaint();\n        else if (canvas.onpaint) canvas.onpaint();\n      }\n\n      const ro = new ResizeObserver(() => syncSize());\n      ro.observe(canvas);\n\n      /* ==============================================================\n         Drag handling for the frost panel.\n\n         The panel is positioned via a CSS transform driven by two\n         custom properties on the element (--panel-x, --panel-y),\n         because Chrome's <canvas layoutsubtree> forces direct canvas\n         children to position:static. We track the panel's logical\n         position in JS and use it for both the visual transform AND\n         the paint code's source coordinates.\n         ============================================================== */\n      let isDragging = false;\n      let dragStartX = 0;\n      let dragStartY = 0;\n      let panelStartX = 0;\n      let panelStartY = 0;\n      let panelX = 170;\n      let panelY = 115;\n\n      function applyPanelPosition() {\n        frostPanel.style.setProperty(\"--panel-x\", panelX + \"px\");\n        frostPanel.style.setProperty(\"--panel-y\", panelY + \"px\");\n      }\n\n      function clampPanel(newX, newY) {\n        const cssW = canvas.clientWidth;\n        const cssH = canvas.clientHeight;\n        const pw = frostPanel.offsetWidth;\n        const ph = frostPanel.offsetHeight;\n        return {\n          x: Math.max(0, Math.min(cssW - pw, newX)),\n          y: Math.max(0, Math.min(cssH - ph, newY)),\n        };\n      }\n\n      frostPanel.addEventListener(\"mousedown\", (e) => {\n        isDragging = true;\n        frostPanel.classList.add(\"dragging\");\n        dragStartX = e.clientX;\n        dragStartY = e.clientY;\n        panelStartX = panelX;\n        panelStartY = panelY;\n        e.preventDefault();\n      });\n\n      window.addEventListener(\"mousemove\", (e) => {\n        if (!isDragging) return;\n        const dx = e.clientX - dragStartX;\n        const dy = e.clientY - dragStartY;\n        const pos = clampPanel(panelStartX + dx, panelStartY + dy);\n        panelX = pos.x;\n        panelY = pos.y;\n        applyPanelPosition();\n        requestRepaint();\n      });\n\n      window.addEventListener(\"mouseup\", () => {\n        if (!isDragging) return;\n        isDragging = false;\n        frostPanel.classList.remove(\"dragging\");\n      });\n\n      /* Touch support */\n      frostPanel.addEventListener(\n        \"touchstart\",\n        (e) => {\n          isDragging = true;\n          frostPanel.classList.add(\"dragging\");\n          const touch = e.touches[0];\n          dragStartX = touch.clientX;\n          dragStartY = touch.clientY;\n          panelStartX = panelX;\n          panelStartY = panelY;\n        },\n        { passive: true },\n      );\n\n      window.addEventListener(\n        \"touchmove\",\n        (e) => {\n          if (!isDragging) return;\n          e.preventDefault();\n          const touch = e.touches[0];\n          const dx = touch.clientX - dragStartX;\n          const dy = touch.clientY - dragStartY;\n          const pos = clampPanel(panelStartX + dx, panelStartY + dy);\n          panelX = pos.x;\n          panelY = pos.y;\n          applyPanelPosition();\n          requestRepaint();\n        },\n        { passive: false },\n      );\n\n      window.addEventListener(\"touchend\", () => {\n        if (!isDragging) return;\n        isDragging = false;\n        frostPanel.classList.remove(\"dragging\");\n      });\n\n      /* ==============================================================\n         Control panel event handlers\n         ============================================================== */\n      const modeButtons = $(\"mode-buttons\");\n      const radiusSlider = $(\"radius-slider\");\n      const radiusValue = $(\"radius-value\");\n      const angleGroup = $(\"angle-group\");\n      const angleSlider = $(\"angle-slider\");\n      const angleValue = $(\"angle-value\");\n      const focusGroup = $(\"focus-group\");\n      const focusSlider = $(\"focus-slider\");\n      const focusValue = $(\"focus-value\");\n\n      modeButtons.addEventListener(\"click\", (e) => {\n        const btn = e.target.closest(\".mode-btn\");\n        if (!btn) return;\n\n        modeButtons\n          .querySelectorAll(\".mode-btn\")\n          .forEach((b) => b.classList.remove(\"active\"));\n        btn.classList.add(\"active\");\n\n        blurMode = btn.dataset.mode;\n        angleGroup.style.display = blurMode === \"directional\" ? \"\" : \"none\";\n        focusGroup.style.display = blurMode === \"tiltshift\" ? \"\" : \"none\";\n        requestRepaint();\n      });\n\n      radiusSlider.addEventListener(\"input\", () => {\n        blurRadius = parseFloat(radiusSlider.value);\n        radiusValue.textContent = blurRadius;\n        requestRepaint();\n      });\n\n      angleSlider.addEventListener(\"input\", () => {\n        blurAngle = parseFloat(angleSlider.value);\n        angleValue.textContent = blurAngle;\n        requestRepaint();\n      });\n\n      focusSlider.addEventListener(\"input\", () => {\n        focusY = parseFloat(focusSlider.value) / 100;\n        focusValue.textContent = focusSlider.value;\n        requestRepaint();\n      });\n\n      /* ==============================================================\n         Initial setup\n         ============================================================== */\n      syncSize();\n    "}]</script>
+
+  <script src="../assets/sidebar.js" defer></script>
+  <script src="../assets/support-check.js" defer></script>
+  <script src="../assets/code-pane.js" defer></script>
+  <script src="../assets/demo-embed.js" defer></script>
+</body>
+</html>

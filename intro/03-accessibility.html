@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Accessibility, for real — HTML in Canvas</title>
+    <meta name="description" content="A real form painted into a canvas that a screen reader can still read and a keyboard can still drive — with a live inspector of the accessibility tree." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .a11y-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
+      @media (max-width: 980px) { .a11y-grid { grid-template-columns: 1fr; } }
+
+      .a11y-grid .canvas-host { height: 560px; min-height: 0; border-radius: var(--radius); border: 1px solid var(--border); }
+      .a11y-grid canvas.scene { height: 560px; min-height: 0; }
+
+      /* The real form painted into the canvas */
+      .acct {
+        width: 320px; padding: 22px;
+        background: linear-gradient(180deg, #1b2030, #11141c);
+        border: 1px solid #2a3243; border-radius: 16px;
+        box-shadow: 0 22px 50px -24px rgba(0,0,0,.75);
+        display: flex; flex-direction: column; gap: 14px; color: var(--text);
+        transform-origin: 0 0;
+      }
+      .acct h2 { margin: 0; font-size: 17px; letter-spacing: -.01em; }
+      .acct legend { padding: 0; margin: 0 0 2px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-2); }
+      .acct fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+      .fld { display: flex; flex-direction: column; gap: 5px; }
+      .fld label { font-size: 11px; letter-spacing: .06em; color: var(--text-dim); }
+      .fld input[type="email"], .fld input[type="password"], .fld select {
+        background: var(--bg); border: 1px solid var(--border-strong); color: var(--text);
+        padding: 8px 10px; border-radius: 8px; font: inherit; font-size: 13px; outline: none;
+      }
+      .acct input:focus-visible, .acct select:focus-visible, .acct button:focus-visible {
+        border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,.4);
+      }
+      .check { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text); }
+      .check input { width: 16px; height: 16px; accent-color: var(--accent); }
+      .acct__submit {
+        margin-top: 2px; padding: 10px 14px; border-radius: 9px; cursor: pointer;
+        border: 1px solid transparent; font: inherit; font-size: 14px; font-weight: 600; color: #fff;
+        background: linear-gradient(180deg, #8a6bff, #6b4dff);
+        box-shadow: 0 6px 18px -6px rgba(124,92,255,.6);
+      }
+
+      /* Inspector panel */
+      .inspector { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 20px; }
+      .panel { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev); overflow: hidden; }
+      .panel__head { padding: 11px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+      .panel__head h3 { margin: 0; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-mute); }
+      .panel__body { padding: 14px; }
+
+      .sr-readout {
+        font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; line-height: 1.6;
+        color: #a7f3d0; background: #06090e; border: 1px solid var(--border); border-radius: 10px;
+        padding: 12px 13px; min-height: 44px;
+      }
+      .sr-readout .muted { color: var(--text-mute); }
+      .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin-top: 12px; font-size: 12.5px; }
+      .kv dt { color: var(--text-mute); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }
+      .kv dd { margin: 0; color: var(--text); font-family: "JetBrains Mono", ui-monospace, monospace; word-break: break-word; }
+
+      .tree { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+      .tree li { padding: 6px 8px; border-radius: 7px; display: flex; gap: 8px; align-items: baseline; line-height: 1.35; }
+      .tree li.is-active { background: rgba(124,92,255,.16); box-shadow: inset 0 0 0 1px rgba(124,92,255,.4); }
+      .tree .role { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--accent-2); flex: none; }
+      .tree .nm { color: var(--text); }
+      .tree .group { color: var(--text-mute); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 8px 8px 2px; }
+
+      .keyhint { font-size: 12.5px; color: var(--text-dim); line-height: 1.6; }
+      .keyhint kbd {
+        font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px;
+        background: var(--bg); border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px;
+      }
+    </style>
+  </head>
+  <body data-wide>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Concept 03 · Start here</p>
+            <h1 class="example__title">Accessibility, for real</h1>
+            <p class="example__intro">
+              This is the part that makes HTML-in-Canvas more than a visual trick. The sign-up form
+              below is <em>painted</em> into the canvas — but it is still ordinary DOM, so it keeps
+              every bit of its semantics. Press <kbd>Tab</kbd> to walk the fields; the panel on the
+              right is a live view of what assistive technology sees, read straight from
+              <code>document.activeElement</code> as you move.
+            </p>
+          </div>
+        </header>
+
+        <section class="demo-code">
+        <div>
+        <section class="a11y-grid">
+          <section class="stage" aria-label="Demo stage" style="min-height:0">
+            <div class="canvas-host" id="canvas-host">
+              <span class="canvas-host__label">Canvas · a real, focusable form</span>
+              <div class="diag" id="diag" data-state="pending">
+                <span class="diag__dot" aria-hidden="true"></span>
+                <span id="diag-text">checking…</span>
+              </div>
+
+              <canvas class="scene" id="scene" layoutsubtree>
+                <form class="acct" id="acct" aria-labelledby="acct-title">
+                  <h2 id="acct-title">Create your account</h2>
+                  <fieldset>
+                    <legend>Credentials</legend>
+                    <div class="fld">
+                      <label for="email">Email address</label>
+                      <input id="email" type="email" placeholder="you@example.com" autocomplete="off" />
+                    </div>
+                    <div class="fld">
+                      <label for="pw">Password</label>
+                      <input id="pw" type="password" placeholder="••••••••" autocomplete="off" />
+                    </div>
+                    <div class="fld">
+                      <label for="plan">Plan</label>
+                      <select id="plan">
+                        <option>Free</option>
+                        <option>Pro</option>
+                        <option>Team</option>
+                      </select>
+                    </div>
+                  </fieldset>
+                  <label class="check">
+                    <input id="news" type="checkbox" />
+                    Email me product updates
+                  </label>
+                  <button class="acct__submit" id="submit" type="button">Create account</button>
+                </form>
+              </canvas>
+
+              <div class="fallback-host" id="fallback-host" hidden></div>
+            </div>
+            <div class="notice" id="trial-notice" hidden></div>
+          </section>
+
+          <aside class="inspector" aria-label="Accessibility inspector">
+            <div class="panel">
+              <div class="panel__head"><h3>What a screen reader hears</h3></div>
+              <div class="panel__body">
+                <div class="sr-readout" id="sr" aria-live="polite">
+                  <span class="muted">Focus a field to hear its announcement…</span>
+                </div>
+                <dl class="kv" id="kv" hidden>
+                  <dt>name</dt><dd id="kv-name">—</dd>
+                  <dt>role</dt><dd id="kv-role">—</dd>
+                  <dt>value</dt><dd id="kv-value">—</dd>
+                  <dt>element</dt><dd id="kv-el">—</dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel__head"><h3>Accessibility tree</h3></div>
+              <div class="panel__body">
+                <ul class="tree" id="tree"></ul>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel__head"><h3>Keyboard</h3></div>
+              <div class="panel__body keyhint">
+                <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> move between fields ·
+                <kbd>Space</kbd> toggles the checkbox · <kbd>↑</kbd><kbd>↓</kbd> change the plan ·
+                <kbd>Enter</kbd> submits. Notice the focus ring lands on the painted pixels.
+              </div>
+            </div>
+          </aside>
+        </section>
+        </div>
+
+          <aside class="code-pane" aria-label="Source code for this demo">
+            <div class="code-pane__bar">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="code-pane__name">03-accessibility.html</span>
+            </div>
+            <div class="code-pane__scroll">
+              <p class="code-pane__cap">The real form inside the canvas</p>
+              <pre class="code-pane__pre" data-code-html="a11y"></pre>
+              <p class="code-pane__cap">The script — paint loop + live a11y inspector</p>
+              <pre class="code-pane__pre" data-code-from="a11y-js"></pre>
+            </div>
+          </aside>
+        </section>
+
+        <section class="callout" style="margin-top:26px">
+          <h3>Why this is impossible with canvas alone</h3>
+          <p>
+            A form drawn with <code>fillText</code> is a single opaque <code>&lt;canvas&gt;</code> node
+            to assistive tech — one anonymous "canvas" with no fields, no labels, no values. A screen
+            reader user simply cannot fill it out. Here, because the form is real DOM that merely
+            <em>happens</em> to be painted by the canvas, the entire accessibility tree survives: the
+            <code>&lt;fieldset&gt;</code>/<code>&lt;legend&gt;</code> grouping, every
+            <code>&lt;label&gt;</code>, roles, values, and the tab order. The inspector above is built
+            live from that DOM — nothing here is faked.
+          </p>
+        </section>
+
+        <section class="callout" style="margin-top:22px; border-style: solid; border-color: rgba(124,92,255,.35);">
+          <h3>Next</h3>
+          <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:6px;">
+            <a class="btn btn--primary" href="../examples/17-pie-chart.html">See it on a chart →</a>
+            <a class="btn btn--ghost" href="./02-before-after.html">← Before vs After</a>
+            <a class="btn btn--ghost" href="../index.html">All examples</a>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <!-- Capture the authored markup before the demo mutates the DOM. -->
+    <script>(window.__markup ||= {}).a11y = document.getElementById('scene').outerHTML;</script>
+    <script id="a11y-js">
+      (() => {
+        const canvas = document.getElementById('scene');
+        const ctx    = canvas.getContext('2d');
+        const form   = document.getElementById('acct');
+        const host   = document.getElementById('canvas-host');
+        const fbHost  = document.getElementById('fallback-host');
+        const notice = document.getElementById('trial-notice');
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        // ── Derive ARIA-ish facts straight from the live DOM ───────────
+        const controls = [...form.querySelectorAll('input, select, button')];
+
+        function accName(el) {
+          if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
+          if (el.id) { const l = form.querySelector(`label[for="${el.id}"]`); if (l) return l.textContent.trim(); }
+          const wrap = el.closest('label'); if (wrap) return wrap.textContent.trim();
+          if (el.tagName === 'BUTTON') return el.textContent.trim();
+          return el.getAttribute('placeholder') || '(no name)';
+        }
+        function role(el) {
+          if (el.getAttribute('role')) return el.getAttribute('role');
+          const tag = el.tagName.toLowerCase();
+          if (tag === 'button') return 'button';
+          if (tag === 'select') return 'combobox';
+          if (tag === 'input') {
+            return ({ email: 'textbox', text: 'textbox', password: 'textbox (password)',
+                      checkbox: 'checkbox', radio: 'radio', submit: 'button' })[el.type] || 'textbox';
+          }
+          return tag;
+        }
+        function stateVal(el) {
+          if (el.type === 'checkbox' || el.type === 'radio') return el.checked ? 'checked' : 'not checked';
+          if (el.tagName === 'SELECT') return (el.options[el.selectedIndex] || {}).text || '';
+          if ('value' in el && el.type !== 'submit') return el.value ? `"${el.value}"` : '(empty)';
+          return '';
+        }
+
+        // ── Build the static accessibility-tree view once ──────────────
+        const tree = document.getElementById('tree');
+        const treeRows = new Map();
+        (function buildTree() {
+          const title = document.createElement('li');
+          title.innerHTML = `<span class="role">heading</span><span class="nm">${form.querySelector('h2').textContent}</span>`;
+          tree.append(title);
+          const grpLabel = document.createElement('li');
+          grpLabel.className = 'group';
+          grpLabel.textContent = '▸ group: ' + form.querySelector('legend').textContent;
+          tree.append(grpLabel);
+          for (const el of controls) {
+            const li = document.createElement('li');
+            li.innerHTML = `<span class="role">${role(el)}</span><span class="nm">${accName(el)}</span>`;
+            tree.append(li);
+            treeRows.set(el, li);
+          }
+        })();
+
+        // ── Live readout of document.activeElement ─────────────────────
+        const sr = document.getElementById('sr');
+        const kv = document.getElementById('kv');
+        const kvName = document.getElementById('kv-name');
+        const kvRole = document.getElementById('kv-role');
+        const kvVal  = document.getElementById('kv-value');
+        const kvEl   = document.getElementById('kv-el');
+
+        function describe() {
+          const el = document.activeElement;
+          treeRows.forEach((li) => li.classList.remove('is-active'));
+          if (!el || !controls.includes(el)) {
+            sr.innerHTML = '<span class="muted">Focus a field to hear its announcement…</span>';
+            kv.hidden = true;
+            return;
+          }
+          const n = accName(el), r = role(el), v = stateVal(el);
+          sr.textContent = `“${n}, ${r}${v ? ', ' + v : ''}”`;
+          kvName.textContent = n;
+          kvRole.textContent = r;
+          kvVal.textContent  = v || '—';
+          kvEl.textContent   = `<${el.tagName.toLowerCase()}${el.type ? ' type="' + el.type + '"' : ''}>`;
+          kv.hidden = false;
+          treeRows.get(el)?.classList.add('is-active');
+        }
+        form.addEventListener('focusin', describe);
+        form.addEventListener('focusout', () => requestAnimationFrame(describe));
+        form.addEventListener('input', describe);
+        form.addEventListener('change', describe);
+        document.getElementById('submit').addEventListener('click', (e) => e.preventDefault());
+
+        // ── Paint loop ─────────────────────────────────────────────────
+        let nt = 0;
+        function nudge() { nt = nt ? 0 : 1; form.style.opacity = nt ? '1' : '0.999999'; }
+
+        function resize() {
+          const w = Math.max(360, host.clientWidth);
+          const h = Math.max(520, host.clientHeight);
+          canvas.width = w; canvas.height = h;
+          if (supported) nudge();
+        }
+        new ResizeObserver(resize).observe(host);
+
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          ctx.reset();
+          const bg = ctx.createRadialGradient(w / 2, h * 0.3, 40, w / 2, h * 0.3, Math.max(w, h) * 0.7);
+          bg.addColorStop(0, '#0d1120'); bg.addColorStop(1, '#06080f');
+          ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+          ctx.strokeStyle = 'rgba(255,255,255,.035)'; ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let x = 0; x <= w; x += 30) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, h); }
+          for (let y = 0; y <= h; y += 30) { ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); }
+          ctx.stroke();
+
+          const cw = form.offsetWidth || 320, ch = form.offsetHeight || 420;
+          const x = Math.round((w - cw) / 2);
+          const y = Math.round((h - ch) / 2);
+          try {
+            const m = ctx.drawElementImage(form, x, y);
+            if (m && m.toString) form.style.transform = m.toString();
+          } catch (err) {
+            ctx.fillStyle = '#fecaca'; ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16, 30);
+          }
+        }
+
+        if (supported) {
+          canvas.onpaint = paint;
+          nudge();
+        } else {
+          fbHost.hidden = false;
+          fbHost.append(form);
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong');
+          strong.textContent = 'drawElementImage() not detected.';
+          const code = document.createElement('code');
+          code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(strong, ' Enable ', code, ' in Chrome 148+ to see the form painted into the canvas. The form is shown as plain DOM for now — and the inspector still works, because the semantics are real either way.');
+        }
+        describe();
+      })();
+    </script>
+    <script src="../assets/code-pane.js" defer></script>
+  </body>
+</html>

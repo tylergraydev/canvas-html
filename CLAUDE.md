@@ -79,6 +79,18 @@ browsers.
 - `assets/support-check.js` — feature-detects `drawElementImage`, sets
   `body[data-canvas-html-supported]` and the sidebar support pill.
 - `.debug/` — launch notes, the API probe page, and reference screenshots.
+- `demos/` — the gallery from [html-in-canvas.dev](https://html-in-canvas.dev/demos/) (by En Dash
+  Consulting), MIT-licensed (`demos/UPSTREAM-LICENSE.txt`). Pipeline:
+  - `demos/_src/<slug>.html` — the upstream demo **vendored verbatim** (a full standalone page with
+    its own `<head>`/CSS/scripts; CDN deps like Three.js). Don't hand-edit; re-pull to update.
+  - `scripts/build-embeds.mjs` — Node generator that reads each `_src` file, splits out its
+    styles/body/scripts, and writes `demos/<slug>.html` — a page in **our** chrome (sidebar, header,
+    stage) that inlines those parts. Re-run `node scripts/build-embeds.mjs` after updating `_src`.
+  - `assets/demo-embed.js` — runtime that mounts the inlined demo in a **shadow root** on
+    `#demo-host` (style isolation), exposes it as `window.__demoRoot` (every upstream demo resolves
+    elements via `window.__demoRoot ?? document`), re-materializes the scripts so they run, then
+    builds the Source/Accessibility code pane via `window.CodePane` (exported from `code-pane.js`).
+  Linked in-layout from the sidebar (`html-in-canvas.dev` group) and the home gallery.
 
 Every page mounts the same chrome by including, before `</body>`:
 ```html

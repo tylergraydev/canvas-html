@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>17 · Accessible pie chart — HTML in Canvas</title>
+    <meta name="description" content="Canvas-native gradient wedges with live, focusable DOM slice labels and real keyboard focus rings." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 560px; }
+      canvas.scene { min-height: 560px; }
+
+      /* Each slice label is a real, focusable DOM node living inside the
+         canvas. It's painted around the wedge by drawElementImage(), but it
+         stays in the accessibility tree and the tab order. */
+      .pie-label {
+        display: inline-flex; flex-direction: column; align-items: center; gap: 1px;
+        padding: 7px 13px;
+        border-radius: 13px;
+        background: rgba(8, 11, 19, 0.74);
+        border: 1px solid rgba(160, 180, 255, 0.18);
+        box-shadow: 0 10px 26px -16px rgba(0, 0, 0, 0.9);
+        color: var(--text);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        white-space: nowrap;
+        cursor: pointer;
+        transform-origin: 0 0;
+        outline: none;
+        transition: border-color 0.14s ease, box-shadow 0.14s ease;
+      }
+      .pie-label:focus-visible,
+      .pie-label:hover {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.28), 0 10px 26px -16px rgba(0, 0, 0, 0.9);
+      }
+      .pie-label__val { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
+      .pie-label__name { font-size: 11px; color: var(--text-dim); }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 17 · Data</p>
+            <h1 class="example__title">Accessible pie chart</h1>
+            <p class="example__intro">
+              Ported from the WICG spec's <code>pie-chart</code> demo. The wedges are drawn with
+              canvas-native radial gradients, but every label is a <em>real, focusable DOM node</em>
+              painted around its slice with <code>drawElementImage()</code>. Press <kbd>Tab</kbd> to
+              walk the slices — each one explodes out and gets a genuine canvas focus ring via
+              <code>drawFocusIfNeeded()</code>. The chart stays a proper list in the accessibility
+              tree, which is the whole point of the API.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">Canvas · gradient wedges + drawElementImage labels</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+
+            <canvas class="scene" id="scene" layoutsubtree role="list" aria-label="Fruit harvest share">
+              <div class="pie-label" role="listitem" tabindex="0" data-weight="45" data-color="#ff6b5e">
+                <span class="pie-label__val">45%</span><span class="pie-label__name">🍎 Apple</span>
+              </div>
+              <div class="pie-label" role="listitem" tabindex="0" data-weight="24" data-color="#6f9bff">
+                <span class="pie-label__val">24%</span><span class="pie-label__name">🫐 Bramble</span>
+              </div>
+              <div class="pie-label" role="listitem" tabindex="0" data-weight="14" data-color="#ffcf4a">
+                <span class="pie-label__val">14%</span><span class="pie-label__name">🥭 Durian</span>
+              </div>
+              <div class="pie-label" role="listitem" tabindex="0" data-weight="10" data-color="#ff8fc4">
+                <span class="pie-label__val">10%</span><span class="pie-label__name">🍑 Lychee</span>
+              </div>
+              <div class="pie-label" role="listitem" tabindex="0" data-weight="7" data-color="#56d6a0">
+                <span class="pie-label__val">7%</span><span class="pie-label__name">🥝 Kiwi</span>
+              </div>
+            </canvas>
+
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <button class="seg" id="shuffle" style="border:1px solid var(--border); border-radius:8px;">Shuffle harvest</button>
+            <span class="stat" id="stat">—</span>
+            <div class="controls__spacer"></div>
+            <button class="btn btn--ghost" id="snapshot">Save snapshot (PNG)</button>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>Why draw labels as DOM?</h3>
+          <p>
+            Canvas charts have always had an accessibility problem: the wedges are just pixels, and
+            any text you <code>fillText()</code> is invisible to a screen reader. Here the labels are
+            ordinary <code>&lt;div role="listitem" tabindex="0"&gt;</code> elements, so the chart is a
+            navigable list, the percentages are selectable text, and focus rings are real. The paint
+            loop draws each gradient wedge, then calls <code>drawElementImage(label, x, y)</code> at
+            the slice's midpoint and writes the returned matrix back to the label's
+            <code>transform</code> so its hit-box and focus ring line up with the painted pixels.
+            A short spring lerp on each slice's radial offset gives the explode-on-focus motion,
+            driven by a <code>requestAnimationFrame</code> loop that runs only while a slice is moving
+            and then idles.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script src="../assets/code-pane.js" defer></script>
+    <script>
+      (() => {
+        const canvas   = document.getElementById('scene');
+        const ctx      = canvas.getContext('2d');
+        const host     = document.getElementById('canvas-host');
+        const fbHost   = document.getElementById('fallback-host');
+        const stat     = document.getElementById('stat');
+        const notice   = document.getElementById('trial-notice');
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+        const snapBtn  = document.getElementById('snapshot');
+        const shuffle  = document.getElementById('shuffle');
+
+        const supported = typeof ctx.drawElementImage === 'function';
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        setDiag(supported ? 'ok' : 'bad', supported ? 'drawElementImage() ready' : 'drawElementImage() missing');
+
+        // Build slice state from the DOM children (single source of truth).
+        const slices = [...canvas.querySelectorAll('.pie-label')].map((el) => ({
+          el,
+          weight: +el.dataset.weight,
+          color: el.dataset.color,
+          light: lighten(el.dataset.color, 0.42),
+          cur: 0,        // current radial explode offset (px)
+        }));
+
+        let hoverIndex = -1;
+        const focusIndex = () => slices.findIndex((s) => s.el === document.activeElement);
+        const activeIndex = () => { const f = focusIndex(); return f >= 0 ? f : hoverIndex; };
+
+        slices.forEach((s, i) => {
+          s.el.addEventListener('pointerenter', () => { hoverIndex = i; schedule(); });
+          s.el.addEventListener('pointerleave', () => { if (hoverIndex === i) hoverIndex = -1; schedule(); });
+          s.el.addEventListener('focus', schedule);
+          s.el.addEventListener('blur', schedule);
+        });
+
+        function lighten(hex, amt) {
+          const n = parseInt(hex.slice(1), 16);
+          const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+          const mix = (c) => Math.round(c + (255 - c) * amt);
+          return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`;
+        }
+
+        function updatePercents() {
+          const total = slices.reduce((s, sl) => s + sl.weight, 0) || 1;
+          for (const sl of slices) {
+            sl.el.querySelector('.pie-label__val').textContent = `${Math.round((sl.weight / total) * 100)}%`;
+          }
+        }
+
+        shuffle.addEventListener('click', () => {
+          for (const sl of slices) sl.weight = 4 + Math.floor(seededRand() * 46);
+          updatePercents();
+          schedule();
+        });
+
+        // requestPaint()-free deterministic jitter (no Math.random dependency
+        // for reproducible shuffles isn't required, but keeps it self-contained).
+        let seed = 0x2545f491;
+        function seededRand() { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) % 1000) / 1000; }
+
+        // rAF-driven loop (same model as examples 15/16): drawElementImage is
+        // called in the frame callback, not via requestPaint() inside onpaint —
+        // that self-loop can wedge the compositor. The loop re-arms only while
+        // something is animating, then idles.
+        let rafPending = false;
+        function tick() { rafPending = false; if (paint()) requestFrame(); }
+        function requestFrame() { if (!rafPending && supported) { rafPending = true; requestAnimationFrame(tick); } }
+        function schedule() { requestFrame(); }
+
+        const EXPLODE = 18;
+        const startAngle = -Math.PI / 2;
+
+        function resize() {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(360, Math.floor(r.width));
+          const h = Math.max(540, Math.floor(r.height));
+          canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
+          canvas.width = w; canvas.height = h;
+          schedule();
+        }
+        new ResizeObserver(resize).observe(host);
+
+        let paints = 0, fpsT = performance.now(), fpsAt = 0, lastFps = 0;
+
+        function paint() {
+          const w = canvas.width, h = canvas.height;
+          ctx.reset();
+
+          // Backdrop
+          const bg = ctx.createRadialGradient(w / 2, h / 2, 40, w / 2, h / 2, Math.max(w, h) * 0.7);
+          bg.addColorStop(0, '#0c1020');
+          bg.addColorStop(1, '#06080f');
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          const total = slices.reduce((s, sl) => s + sl.weight, 0) || 1;
+          const radius = Math.max(70, Math.min(w, h) / 2 - 104);
+          const act = activeIndex();
+
+          ctx.translate(w / 2, h / 2);
+
+          // Spring the explode offsets toward their targets.
+          let animating = false;
+          slices.forEach((sl, i) => {
+            const target = i === act ? EXPLODE : 0;
+            sl.cur += (target - sl.cur) * 0.2;
+            if (Math.abs(target - sl.cur) > 0.15) animating = true; else sl.cur = target;
+          });
+
+          let angle = startAngle;
+          let focusPath = null, focusEl = null;
+          try {
+            for (const sl of slices) {
+              const frac = sl.weight / total;
+              const sweep = frac * Math.PI * 2;
+              const mid = angle + sweep / 2;
+              const ox = Math.cos(mid) * sl.cur, oy = Math.sin(mid) * sl.cur;
+
+              const grad = ctx.createRadialGradient(ox, oy, 0, ox, oy, radius);
+              grad.addColorStop(0, sl.light);
+              grad.addColorStop(1, sl.color);
+
+              const path = new Path2D();
+              path.moveTo(ox, oy);
+              path.arc(ox, oy, radius, angle, angle + sweep);
+              path.closePath();
+              ctx.fillStyle = grad;
+              ctx.fill(path);
+              ctx.lineWidth = 2;
+              ctx.strokeStyle = 'rgba(6, 8, 16, 0.55)';
+              ctx.stroke(path);
+
+              if (sl.el === document.activeElement) { focusPath = path; focusEl = sl.el; }
+
+              const lw = sl.el.offsetWidth, lh = sl.el.offsetHeight;
+              const lx = ox + Math.cos(mid) * radius * 0.64 - lw / 2;
+              const ly = oy + Math.sin(mid) * radius * 0.64 - lh / 2;
+              const tf = ctx.drawElementImage(sl.el, lx, ly);
+              sl.el.style.transform = tf.toString();
+
+              angle += sweep;
+            }
+          } catch (err) {
+            ctx.fillStyle = '#fecaca';
+            ctx.font = '13px ui-sans-serif, system-ui';
+            ctx.fillText(`drawElementImage() threw: ${err.message}`, 16 - w / 2, 30 - h / 2);
+            return;
+          }
+
+          // Donut hole + native-canvas readout in the centre.
+          const holeR = radius * 0.42;
+          ctx.beginPath();
+          ctx.arc(0, 0, holeR, 0, Math.PI * 2);
+          ctx.fillStyle = '#070a12';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(160,180,255,.12)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          if (act >= 0) {
+            const sl = slices[act];
+            const name = sl.el.querySelector('.pie-label__name').textContent;
+            ctx.fillStyle = sl.light;
+            ctx.font = '700 30px ui-sans-serif, system-ui';
+            ctx.fillText(`${Math.round((sl.weight / total) * 100)}%`, 0, -8);
+            ctx.fillStyle = 'rgba(220,228,255,.7)';
+            ctx.font = '12px "JetBrains Mono", ui-monospace, monospace';
+            ctx.fillText(name, 0, 18);
+          } else {
+            ctx.fillStyle = 'rgba(220,228,255,.92)';
+            ctx.font = '700 26px ui-sans-serif, system-ui';
+            ctx.fillText('100%', 0, -6);
+            ctx.fillStyle = 'rgba(160,170,200,.6)';
+            ctx.font = '11px "JetBrains Mono", ui-monospace, monospace';
+            ctx.fillText(`${slices.length} slices`, 0, 16);
+          }
+
+          // Real focus ring, drawn on top, in canvas coordinates.
+          if (focusPath) ctx.drawFocusIfNeeded(focusPath, focusEl);
+
+          paints++;
+          const now = performance.now();
+          if (now - fpsT >= 500) {
+            lastFps = ((paints - fpsAt) * 1000) / (now - fpsT);
+            fpsT = now; fpsAt = paints;
+          }
+          stat.textContent = (animating && lastFps ? `${lastFps.toFixed(0)} fps · ` : '') + `${slices.length} live labels`;
+
+          return animating;
+        }
+
+        if (supported) {
+          canvas.onpaint = () => requestFrame();
+          updatePercents();
+          resize();
+        } else {
+          mountFallback();
+        }
+
+        snapBtn.addEventListener('click', () => {
+          schedule();
+          requestAnimationFrame(() => {
+            const link = document.createElement('a');
+            link.download = `pie-chart-${performance.now() | 0}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+          });
+        });
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          const total = slices.reduce((s, sl) => s + sl.weight, 0) || 1;
+          let acc = 0;
+          const stops = slices.map((sl) => {
+            const a = (acc / total) * 360, b = ((acc + sl.weight) / total) * 360;
+            acc += sl.weight;
+            return `${sl.color} ${a.toFixed(1)}deg ${b.toFixed(1)}deg`;
+          }).join(', ');
+          const disc = document.createElement('div');
+          disc.style.cssText = `width:240px;height:240px;border-radius:50%;background:conic-gradient(from -90deg, ${stops});box-shadow:0 20px 50px -20px #000;`;
+          updatePercents();
+          const list = document.createElement('div');
+          list.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:18px;';
+          for (const sl of slices) { sl.el.style.transform = ''; list.append(sl.el); }
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;';
+          wrap.append(disc, list);
+          fbHost.append(wrap);
+
+          notice.hidden = false;
+          notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong'); strong.textContent = 'drawElementImage() not detected.';
+          const code = document.createElement('code'); code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(strong, ' Enable ', code, ' (Chrome 148+) for the canvas-drawn chart with focus rings. Showing a CSS conic-gradient fallback.');
+          stat.textContent = 'fallback · CSS conic-gradient';
+        }
+      })();
+    </script>
+  </body>
+</html>
