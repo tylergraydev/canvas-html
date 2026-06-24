@@ -198,15 +198,44 @@
           // it's pinned to the right side rather than flocking, so the user
           // always knows where to click.
           try {
+            // Ghost clones — drawn dimmed so the single live pill stands out
+            // from the swarm. These are pixels only; they have no hit-box.
+            ctx.globalAlpha = 0.5;
             for (let i = 0; i < particles.length - 1; i++) {
               const p = particles[i];
               ctx.drawElementImage(source, Math.round(p.x), Math.round(p.y));
             }
-            // The "real" interactive pill — fixed top-right
-            const realX = w - (source.offsetWidth || 120) - 30;
-            const realY = 30;
+            ctx.globalAlpha = 1;
+
+            // The "real" interactive pill. Only this clone keeps its hit-box,
+            // so pin it clear of the diag/label overlays (which sit on top of
+            // the canvas and would otherwise intercept clicks) and ring it with
+            // an accent halo + caption — every clone says "click me", so we have
+            // to mark which one actually clicks.
+            const pw = source.offsetWidth  || 120;
+            const ph = source.offsetHeight || 30;
+            const realX = w - pw - 30;
+            const realY = 64;
+
+            ctx.save();
+            ctx.shadowColor = 'rgba(124, 92, 255, 0.9)';
+            ctx.shadowBlur = 20;
+            ctx.strokeStyle = 'rgba(124, 92, 255, 0.95)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(realX - 6, realY - 6, pw + 12, ph + 12, (ph + 12) / 2);
+            ctx.stroke();
+            ctx.restore();
+
             const transform = ctx.drawElementImage(source, realX, realY);
             source.style.transform = transform.toString();
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(167, 139, 250, 0.95)';
+            ctx.font = '600 11px ui-sans-serif, system-ui';
+            ctx.textAlign = 'right';
+            ctx.fillText('the live one — click it ↑', realX + pw, realY + ph + 20);
+            ctx.restore();
           } catch (err) {
             ctx.fillStyle = '#fecaca';
             ctx.font = '13px ui-sans-serif, system-ui';

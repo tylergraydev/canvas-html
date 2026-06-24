@@ -137,6 +137,17 @@
         const diagText  = document.getElementById('diag-text');
         const toggle    = document.getElementById('toggle');
 
+        // drawElementImage can only target the parent canvas, so we can't paint
+        // the element straight onto an offscreen. Instead we capture it once
+        // (tileCanvas) and build the masked reflection on its own offscreen
+        // layer (reflectCanvas) — the falloff mask uses destination-in, a
+        // whole-bitmap op that would erase the upright copy and backdrop if run
+        // on the main canvas. The finished reflection composites back normally.
+        const tileCanvas    = document.createElement('canvas');
+        const tileCtx       = tileCanvas.getContext('2d');
+        const reflectCanvas = document.createElement('canvas');
+        const reflectCtx    = reflectCanvas.getContext('2d');
+
         const gapIn = document.getElementById('gap'), gapVal = document.getElementById('gap-val');
         const fallIn = document.getElementById('fall'), fallVal = document.getElementById('fall-val');
         const tiltIn = document.getElementById('tilt'), tiltVal = document.getElementById('tilt-val');
@@ -161,6 +172,7 @@
           const h = Math.max(520, Math.floor(r.height));
           canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
           canvas.width = w; canvas.height = h;
+          reflectCanvas.width = w; reflectCanvas.height = h;
           if (supported) nudge();
         }
         new ResizeObserver(resize).observe(host); resize();
@@ -168,14 +180,6 @@
         let paints = 0, fpsT = performance.now(), fpsAt = 0;
         function paint() {
           const w = canvas.width, h = canvas.height;
-          ctx.reset();
-
-          // Backdrop — radial vignette
-          const bg = ctx.createRadialGradient(w/2, h*0.4, 50, w/2, h*0.4, Math.max(w, h)*0.8);
-          bg.addColorStop(0, '#1a1f2d');
-          bg.addColorStop(1, '#06080d');
-          ctx.fillStyle = bg;
-          ctx.fillRect(0, 0, w, h);
 
           const cardW = source.offsetWidth  || 320;
           const cardH = source.offsetHeight || 280;
@@ -184,6 +188,23 @@
           const y = Math.round((h - cardH * 2 - state.gap) / 2);
 
           try {
+            // Capture the element once, axis-aligned, into an offscreen tile.
+            // (drawElementImage can only draw onto this canvas, so we paint it
+            // here at the origin on a cleared canvas, then copy the pixels out
+            // for reuse.)
+            ctx.reset();
+            ctx.drawElementImage(source, 0, 0);
+            tileCanvas.width = cardW; tileCanvas.height = cardH;
+            tileCtx.clearRect(0, 0, cardW, cardH);
+            tileCtx.drawImage(canvas, 0, 0, cardW, cardH, 0, 0, cardW, cardH);
+
+            ctx.reset();
+            const bg2 = ctx.createRadialGradient(w/2, h*0.4, 50, w/2, h*0.4, Math.max(w, h)*0.8);
+            bg2.addColorStop(0, '#1a1f2d');
+            bg2.addColorStop(1, '#06080d');
+            ctx.fillStyle = bg2;
+            ctx.fillRect(0, 0, w, h);
+
             // Upright copy — this one gets the transform sync.
             ctx.save();
             ctx.translate(x + cardW/2, y + cardH/2);
@@ -193,23 +214,34 @@
             ctx.restore();
             source.style.transform = t.toString();
 
-            // Reflection — flipped, masked with falloff gradient.
-            ctx.save();
-            ctx.translate(x + cardW/2, y + cardH + state.gap + cardH/2);
-            ctx.rotate(angle);
-            ctx.scale(1, -1);
-            ctx.translate(-cardW/2, -cardH/2);
-            ctx.drawElementImage(source, 0, 0);
+            // Reflection — flipped, masked with falloff gradient on its own
+            // offscreen layer so the destination-in mask can't erase the
+            // upright copy or backdrop already on the main canvas. We draw the
+            // captured tile (not the element) since drawElementImage can't
+            // target an offscreen.
+            const rc = reflectCtx;
+            rc.setTransform(1, 0, 0, 1, 0, 0);
+            rc.globalCompositeOperation = 'source-over';
+            rc.clearRect(0, 0, w, h);
+            rc.save();
+            rc.translate(x + cardW/2, y + cardH + state.gap + cardH/2);
+            rc.rotate(angle);
+            rc.scale(1, -1);
+            rc.translate(-cardW/2, -cardH/2);
+            rc.drawImage(tileCanvas, 0, 0);
 
             // Falloff mask. destination-in keeps only what overlaps with the
-            // gradient's opaque parts.
-            const grad = ctx.createLinearGradient(0, 0, 0, cardH);
+            // gradient's opaque parts — scoped to this offscreen layer.
+            const grad = rc.createLinearGradient(0, 0, 0, cardH);
             grad.addColorStop(0, `rgba(0,0,0,0)`);
             grad.addColorStop(1, `rgba(0,0,0,${state.fall})`);
-            ctx.globalCompositeOperation = 'destination-in';
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, cardW, cardH);
-            ctx.restore();
+            rc.globalCompositeOperation = 'destination-in';
+            rc.fillStyle = grad;
+            rc.fillRect(0, 0, cardW, cardH);
+            rc.restore();
+
+            // Composite the finished reflection onto the main canvas.
+            ctx.drawImage(reflectCanvas, 0, 0);
           } catch (err) {
             ctx.fillStyle = '#fecaca';
             ctx.font = '13px ui-sans-serif, system-ui';
