@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>21 · Jelly slider, tray edition (WebGL) — HTML in Canvas</title>
+    <meta name="description" content="A second ray-marched gel slider: a bezier-smoothed soft body resting in a rounded pill tray with AO, caustics, a projected shadow and a numeric readout uploaded via texElementImage2D. A dependency-free WebGL2 port of TypeGPU's Jelly Slider." />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/example.css" />
+    <style>
+      .canvas-host { min-height: 540px; background: #e9e6e1; }
+      canvas.scene { min-height: 540px; background: transparent; }
+      .canvas-host__label { background: rgba(255,255,255,.7); color: #6b6258; border-color: rgba(0,0,0,.12); }
+      .diag { background: rgba(255,255,255,.7); color: #6b6258; border-color: rgba(0,0,0,.12); }
+
+      /* Real, keyboard-operable range input, pinned over the tray but invisible —
+         the gel is ray-marched, this is just the accessible control. */
+      .jelly-input {
+        -webkit-appearance: none; appearance: none;
+        margin: 0; padding: 0; background: transparent;
+        height: 64px; opacity: 0; transform-origin: 0 0; cursor: grab;
+      }
+      .jelly-input:active { cursor: grabbing; }
+      .jelly-input::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 4px; height: 64px; }
+      .jelly-input::-moz-range-thumb { width: 4px; height: 64px; border: 0; }
+
+      /* The numeric percentage. Uploaded to the GPU with texElementImage2D() and
+         painted flat onto the tray, exactly as the original prints its digit atlas.
+         White on transparent so the shader can read it as ink coverage. */
+      .jelly-value {
+        font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+        font-weight: 700; font-size: 96px; letter-spacing: -0.02em;
+        color: #ffffff; white-space: nowrap; transform-origin: 0 0;
+      }
+      .jelly-value small { font-size: 0.62em; font-weight: 700; margin-left: 0.12em; }
+
+      .fallback-host .jelly-input { opacity: 1; appearance: auto; -webkit-appearance: auto; height: auto; width: 320px; accent-color: #ff7313; }
+      .fallback-host .jelly-input::-webkit-slider-thumb { -webkit-appearance: auto; appearance: auto; width: auto; height: auto; }
+      .fallback-host .jelly-value { font-size: 40px; color: #7c7268; }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app">
+      <div id="sidebar-slot" data-base="../"></div>
+      <main id="main" class="content">
+        <header class="example__header">
+          <div>
+            <a class="example__back" href="../index.html">← All examples</a>
+            <p class="example__meta">Example 21 · Showcase</p>
+            <h1 class="example__title">Jelly slider, tray edition (WebGL)</h1>
+            <p class="example__intro">
+              A second take on the gel slider — a dependency-free WebGL2 port of
+              <a href="https://github.com/software-mansion/TypeGPU/tree/main/apps/typegpu-docs/src/examples/rendering/jelly-slider" target="_blank" rel="noopener">TypeGPU's <em>Jelly Slider</em></a>
+              (itself inspired by <a href="https://x.com/cerpow/status/1964953851603358112" target="_blank" rel="noopener">Voicu Apostol</a>).
+              The soft body is a Verlet chain smoothed into <em>quadratic béziers</em>, rasterised into a signed-distance
+              field, then ray-marched as a 3D tube — with a rounded pie cap on the handle — that rests in a
+              <em>rounded pill tray</em>. Ambient occlusion sinks it into the groove, a fake shadow and caustic
+              highlight spill onto the tray, and temporal anti-aliasing smooths every frame. The percentage is a live
+              DOM element uploaded to the GPU with <code>texElementImage2D()</code> and printed on the tray.
+            </p>
+          </div>
+        </header>
+
+        <section class="stage" aria-label="Demo stage">
+          <div class="canvas-host" id="canvas-host">
+            <span class="canvas-host__label">WebGL2 · bézier SDF + TAA + texElementImage2D value</span>
+            <div class="diag" id="diag" data-state="pending">
+              <span class="diag__dot" aria-hidden="true"></span>
+              <span id="diag-text">checking…</span>
+            </div>
+
+            <canvas class="scene" id="scene" layoutsubtree>
+              <input class="jelly-input" id="slider" type="range" min="0" max="100" value="48" aria-label="Jelly value" />
+              <div class="jelly-value" id="value" inert>48<small>%</small></div>
+            </canvas>
+
+            <div class="fallback-host" id="fallback-host" hidden></div>
+          </div>
+
+          <div class="controls" role="toolbar" aria-label="Demo controls">
+            <button class="seg" id="poke" style="border:1px solid var(--border); border-radius:8px;">Poke 🍮</button>
+            <label class="slider"><span>Light</span><input type="range" id="light" min="0" max="100" value="0" /><span class="slider__val" id="light-val">0</span></label>
+            <label class="slider"><span>Squish</span><input type="range" id="arch" min="0" max="100" value="50" /><span class="slider__val" id="arch-val">50</span></label>
+            <span class="stat" id="stat">—</span>
+            <div class="controls__spacer"></div>
+            <button class="btn btn--ghost" id="snapshot">Save snapshot (PNG)</button>
+          </div>
+
+          <div class="notice" id="trial-notice" hidden></div>
+        </section>
+
+        <section class="callout">
+          <h3>Two jelly sliders, two recipes</h3>
+          <p>
+            The <a href="20-jelly-slider.html">previous demo</a> ports the WICG <code>webgpu-jelly-slider</code>: a
+            chain rasterised as <em>straight segments</em> on a flat light tray, with the value spelled out in words.
+            This one ports the <strong>TypeGPU</strong> demo, which is a different beast. Between the 17 chain points it
+            fits <code>quadratic béziers</code> (control points solved from the per-point normals) so the gel reads as
+            one smooth blob rather than a polyline. The ground is not a flat plane but a <code>sdRoundedBox2d</code>
+            <em>pill tray</em> the tube sinks into, lit with <code>ambient occlusion</code>, a béziertexture-projected
+            <code>fake shadow</code>, caustic highlights and warm bounce light from the gel. The handle end gets a real
+            rounded cap (<code>sdPie</code> extruded), the jelly refracts the tray through <code>Beer–Lambert</code>
+            absorption with forward <code>scatter</code>, and a neighbourhood-clamped <code>TAA</code> pass (Halton
+            camera jitter + history blend) removes the ray-march shimmer. WebGL's <code>texElementImage2D()</code> — the
+            counterpart of the WebGPU <code>copyElementImageToTexture()</code> the original uses — uploads the live
+            numeric readout straight to the GPU to be printed on the tray.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="../assets/sidebar.js" defer></script>
+    <script src="../assets/support-check.js" defer></script>
+    <script src="../assets/code-pane.js" defer></script>
+    <script>
+      (() => {
+        const canvas   = document.getElementById('scene');
+        const slider   = document.getElementById('slider');
+        const valueEl  = document.getElementById('value');
+        const host     = document.getElementById('canvas-host');
+        const fbHost   = document.getElementById('fallback-host');
+        const stat     = document.getElementById('stat');
+        const notice   = document.getElementById('trial-notice');
+        const diag     = document.getElementById('diag');
+        const diagText = document.getElementById('diag-text');
+        const snapBtn  = document.getElementById('snapshot');
+        const poke     = document.getElementById('poke');
+        const lightIn  = document.getElementById('light'), lightVal = document.getElementById('light-val');
+        const archIn   = document.getElementById('arch'),  archVal  = document.getElementById('arch-val');
+
+        const gl = canvas.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: true });
+        const floatBuf = gl && gl.getExtension('EXT_color_buffer_float');
+        const supported = !!gl && typeof gl.texElementImage2D === 'function' && !!floatBuf;
+
+        const setDiag = (s, t) => { diag.dataset.state = s; diagText.textContent = t; };
+        function showError(message, where) {
+          notice.hidden = false; notice.dataset.tone = 'error'; notice.textContent = '';
+          const strong = document.createElement('strong'); strong.textContent = `Runtime error in ${where}: `;
+          const code = document.createElement('code'); code.textContent = message;
+          notice.append(strong, code);
+          setDiag('bad', `error in ${where}`);
+        }
+        window.addEventListener('error', (e) => showError(e.message || String(e.error), 'window'));
+        setDiag(supported ? 'ok' : 'bad', supported ? 'texElementImage2D() ready' : 'WebGL2 / texElementImage2D missing');
+
+        // ════════════════════════════════════════════════════════════════
+        //  Soft body — a Verlet chain smoothed into quadratic béziers.
+        //  Faithful port of TypeGPU's slider.ts (XPBD-ish Verlet + bezier
+        //  control points solved from per-point normals).
+        // ════════════════════════════════════════════════════════════════
+        const N = 17;
+        const ANCHOR = [-1.0, 0.0];     // pinned start
+        const END0   = [0.9, 0.0];      // nominal end (value 100)
+        const YOFF   = -0.03;
+        const BASE_Y = ANCHOR[1];
+        const TOTLEN = Math.hypot(END0[0] - ANCHOR[0], END0[1] - ANCHOR[1]);
+        const REST   = TOTLEN / (N - 1);
+
+        const SUBSTEPS = 6, ITER = 16;
+        const sim = {
+          damping: 0.01, bendingStrength: 0.1, archStrength: 2,
+          endFlatCount: 1, endFlatStiffness: 0.05, bendingExponent: 1.2, archEdgeDeadzone: 0.01,
+        };
+        let targetX = 0;
+
+        const pos = Array.from({ length: N }, () => [0, 0]);
+        const prev = Array.from({ length: N }, () => [0, 0]);
+        const nrm = Array.from({ length: N }, () => [0, 1]);
+        const invMass = new Float32Array(N);
+        const ctrl = Array.from({ length: N - 1 }, () => [0, 0]);
+        const ptsFlat = new Float32Array(N * 2);
+        const ctrlFlat = new Float32Array((N - 1) * 2);
+        let endCap = [0, 0, 0, 0];
+
+        function initChain() {
+          for (let i = 0; i < N; i++) {
+            const t = i / (N - 1);
+            const x = ANCHOR[0] * (1 - t) + END0[0] * t;
+            const y = ANCHOR[1] * (1 - t) + END0[1] * t + YOFF;
+            pos[i][0] = prev[i][0] = x; pos[i][1] = prev[i][1] = y;
+            nrm[i][0] = 0; nrm[i][1] = 1;
+            invMass[i] = (i === 0 || i === N - 1) ? 0 : 1;
+          }
+        }
+        const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+        const sat = (x) => Math.min(1, Math.max(0, x));
+
+        function projectDistance(i, j, rest, k) {
+          const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1];
+          const len = Math.hypot(dx, dy); if (len < 1e-8) return;
+          const w1 = invMass[i], w2 = invMass[j], ws = w1 + w2; if (ws <= 0) return;
+          const diff = (len - rest) / len, c1 = (w1 / ws) * k, c2 = (w2 / ws) * k;
+          pos[i][0] += dx * diff * c1; pos[i][1] += dy * diff * c1;
+          pos[j][0] -= dx * diff * c2; pos[j][1] -= dy * diff * c2;
+        }
+        function projectLineY(i, yTarget, k) {
+          if (i <= 0 || i >= N - 1 || invMass[i] <= 0) return;
+          pos[i][1] += (yTarget - pos[i][1]) * sat(k);
+        }
+        function integrate(h, damp, compression) {
+          for (let i = 0; i < N; i++) {
+            const px = pos[i][0], py = pos[i][1];
+            if (i === 0) { pos[i][0] = prev[i][0] = ANCHOR[0]; pos[i][1] = prev[i][1] = ANCHOR[1] + YOFF; continue; }
+            if (i === N - 1) { pos[i][0] = prev[i][0] = targetX; pos[i][1] = prev[i][1] = 0.08 + YOFF; continue; }
+            const vx = (px - prev[i][0]) * (1 - damp);
+            const vy = (py - prev[i][1]) * (1 - damp);
+            let ay = 0;
+            if (compression > 0) {
+              const t = i / (N - 1), edge = sim.archEdgeDeadzone;
+              const win = smoothstep(edge, 1 - edge, t) * smoothstep(edge, 1 - edge, 1 - t);
+              ay = sim.archStrength * Math.sin(Math.PI * t) * win * compression;
+            }
+            prev[i][0] = px; prev[i][1] = py;
+            pos[i][0] = px + vx; pos[i][1] = py + vy + ay * h * h;
+            if (pos[i][1] < BASE_Y + YOFF) pos[i][1] = BASE_Y + YOFF;
+          }
+        }
+        function projectConstraints() {
+          for (let it = 0; it < ITER; it++) {
+            for (let i = 0; i < N - 1; i++) projectDistance(i, i + 1, REST, 0.1);
+            for (let i = 1; i < N - 1; i++) {
+              const t = i / (N - 1), dc = Math.abs(t - 0.5) * 2;
+              const strength = Math.pow(dc, sim.bendingExponent);
+              const k = sim.bendingStrength * (0.05 + 0.95 * strength);
+              projectDistance(i - 1, i + 1, 2 * REST, k);
+            }
+            const count = Math.min(sim.endFlatCount, N - 2);
+            for (let i = 1; i <= count; i++) projectLineY(i, BASE_Y + YOFF, sim.endFlatStiffness);
+            for (let i = N - 1 - count; i < N - 1; i++) projectLineY(i, BASE_Y + YOFF, sim.endFlatStiffness);
+            pos[0][0] = ANCHOR[0]; pos[0][1] = ANCHOR[1] + YOFF;
+            pos[N - 1][0] = targetX; pos[N - 1][1] = 0.08 + YOFF;
+          }
+        }
+        function computeNormals() {
+          const eps = 1e-6;
+          for (let i = 0; i < N; i++) {
+            let dx, dy;
+            if (i === 0) { dx = pos[1][0] - pos[0][0]; dy = pos[1][1] - pos[0][1]; }
+            else if (i === N - 1) { dx = pos[N - 1][0] - pos[N - 2][0]; dy = pos[N - 1][1] - pos[N - 2][1]; }
+            else { dx = pos[i + 1][0] - pos[i - 1][0]; dy = pos[i + 1][1] - pos[i - 1][1]; }
+            let len = Math.hypot(dx, dy);
+            if (len < eps) { nrm[i] = i > 0 ? nrm[i - 1].slice() : [0, 1]; continue; }
+            dx /= len; dy /= len; nrm[i][0] = -dy; nrm[i][1] = dx;
+          }
+        }
+        function computeControlPoints() {
+          for (let i = 0; i < N - 1; i++) {
+            const A = pos[i], B = pos[i + 1];
+            if (i === 0 || i === N - 2) { ctrl[i][0] = (A[0] + B[0]) * 0.5; ctrl[i][1] = (A[1] + B[1]) * 0.5; continue; }
+            const nA = nrm[i], nB = nrm[i + 1];
+            if (nA[0] * nB[0] + nA[1] * nB[1] > 0.99) { ctrl[i][0] = (A[0] + B[0]) * 0.5; ctrl[i][1] = (A[1] + B[1]) * 0.5; continue; }
+            const tAx = nA[1], tAy = -nA[0], tBx = nB[1], tBy = -nB[0];
+            const dx = B[0] - A[0], dy = B[1] - A[1];
+            const denom = tAx * tBy - tAy * tBx;
+            if (Math.abs(denom) <= 1e-6) { ctrl[i][0] = (A[0] + B[0]) * 0.5; ctrl[i][1] = (A[1] + B[1]) * 0.5; continue; }
+            const t = (dx * tBy - dy * tBx) / denom;
+            ctrl[i][0] = A[0] + t * tAx; ctrl[i][1] = A[1] + t * tAy;
+          }
+        }
+        function stepPhysics(dt) {
+          if (dt <= 0) return;
+          const h = dt / SUBSTEPS, damp = Math.min(0.999, Math.max(0, sim.damping));
+          const compression = Math.max(0, 1 - Math.abs(targetX - ANCHOR[0]) / TOTLEN);
+          for (let s = 0; s < SUBSTEPS; s++) { integrate(h, damp, compression); projectConstraints(); }
+          computeNormals(); computeControlPoints();
+          for (let i = 0; i < N; i++) { ptsFlat[i * 2] = pos[i][0]; ptsFlat[i * 2 + 1] = pos[i][1]; }
+          for (let i = 0; i < N - 1; i++) { ctrlFlat[i * 2] = ctrl[i][0]; ctrlFlat[i * 2 + 1] = ctrl[i][1]; }
+          endCap = [pos[N - 2][0], pos[N - 2][1], pos[N - 1][0], pos[N - 1][1]];
+        }
+
+        // value 0..100 → handle target x (left = compressed/buckling, right = stretched)
+        const TGT_LO = -0.33, TGT_HI = 0.9;
+        function setTargetFromValue() { targetX = TGT_LO + (+slider.value / 100) * (TGT_HI - TGT_LO); }
+
+        // ════════════════════════════════════════════════════════════════
+        //  Bézier SDF bounding box (matches slider.ts bbox)
+        // ════════════════════════════════════════════════════════════════
+        const PAD = 0.01;
+        const BB_L = ANCHOR[0] - TOTLEN * PAD;          // left
+        const BB_R = END0[0] + TOTLEN * PAD * 10;       // right
+        const BB_B = -0.3;                              // bottom
+        const BB_T = 0.65;                              // top
+        const DFW = 256, DFH = 128;
+
+        // ── Camera (steep 3/4 top-down, like the TypeGPU demo) ──
+        const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+        const norm3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+        const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        const EYE = [0.024, 2.7, 1.9], TGT = [0, 0, 0], UP = [0, 1, 0], FOV = Math.PI / 4;
+        const camF = norm3(sub(TGT, EYE));
+        const camR = norm3(cross3(camF, UP));
+        const camU = cross3(camR, camF);
+
+        // ── Halton for TAA jitter ──
+        function halton(index, base) { let r = 0, f = 1 / base, i = index; while (i > 0) { r += f * (i % base); i = Math.floor(i / base); f /= base; } return r; }
+
+        // ════════════════════════════════════════════════════════════════
+        //  GLSL
+        // ════════════════════════════════════════════════════════════════
+        const VS = `#version 300 es
+        precision highp float;
+        const vec2 P[3] = vec2[3](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+        out vec2 vUv;
+        void main(){ vec2 p = P[gl_VertexID]; vUv = p*0.5+0.5; gl_Position = vec4(p,0.0,1.0); }`;
+
+        // Pass 1 — rasterise the bézier polyline into (dist, progress, normal.xy)
+        const DF_FS = `#version 300 es
+        precision highp float;
+        in vec2 vUv; out vec4 frag;
+        uniform vec2 uPts[${N}];
+        uniform vec2 uCtrl[${N - 1}];
+        uniform vec4 uBbox;           // left,right,bottom,top
+        float dot2(vec2 v){ return dot(v,v); }
+        // quadratic bézier SDF (A=start, B=control, C=end) — iquilezles
+        float sdBezier(vec2 pos, vec2 A, vec2 B, vec2 C){
+          vec2 a = B - A;
+          vec2 b = A - 2.0*B + C;
+          vec2 c = a * 2.0;
+          vec2 d = A - pos;
+          float dotB = max(dot(b,b), 0.0001);
+          float kk = 1.0/dotB;
+          float kx = kk * dot(a,b);
+          float ky = kk * (2.0*dot(a,a) + dot(d,b)) / 3.0;
+          float kz = kk * dot(d,a);
+          float res = 0.0;
+          float p = ky - kx*kx;
+          float p3 = p*p*p;
+          float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
+          float h = q*q + 4.0*p3;
+          if (h >= 0.0){
+            h = sqrt(h);
+            vec2 x = (vec2(h,-h) - q) * 0.5;
+            vec2 uv = sign(x) * pow(abs(x), vec2(1.0/3.0));
+            float t = clamp(uv.x + uv.y - kx, 0.0, 1.0);
+            res = dot2(d + (c + b*t)*t);
+          } else {
+            float z = sqrt(-p);
+            float v = acos(q/(p*z*2.0)) / 3.0;
+            float m = cos(v);
+            float n = sin(v) * 1.732050808;
+            vec3 t = clamp(vec3(m+m, -n-m, n-m)*z - kx, 0.0, 1.0);
+            res = min(dot2(d + (c + b*t.x)*t.x), dot2(d + (c + b*t.y)*t.y));
+          }
+          return sqrt(res);
+        }
+        float fieldDist(vec2 sp, out float prog){
+          float minD = 1e10; int seg = 0; float closeT = 0.0;
+          for (int i=0;i<${N - 1};i++){
+            vec2 A = uPts[i], C = uPts[i+1], B = uCtrl[i];
+            float dst = sdBezier(sp, A, B, C);
+            if (dst < minD){
+              minD = dst; seg = i;
+              vec2 AB = C - A; vec2 AP = sp - A; float abl = length(AB);
+              closeT = abl > 0.0 ? clamp(dot(AP,AB)/(abl*abl), 0.0, 1.0) : 0.0;
+            }
+          }
+          prog = (float(seg) + closeT) / float(${N - 1});
+          return minD;
+        }
+        float fieldDistOnly(vec2 sp){ float p; return fieldDist(sp, p); }
+        void main(){
+          vec2 sp = vec2(mix(uBbox.x, uBbox.y, vUv.x), uBbox.w - vUv.y*(uBbox.w - uBbox.z));
+          float prog;
+          float md = fieldDist(sp, prog);
+          float e = 0.03;
+          float nx = (fieldDistOnly(sp + vec2(e,0.0)) - fieldDistOnly(sp - vec2(e,0.0))) / (2.0*e);
+          float ny = (fieldDistOnly(sp + vec2(0.0,e)) - fieldDistOnly(sp - vec2(0.0,e))) / (2.0*e);
+          frag = vec4(md, prog, nx, ny);
+        }`;
+
+        // Pass 2 — ray-march the tube in the tray
+        const MAIN_FS = `#version 300 es
+        precision highp float;
+        in vec2 vUv; out vec4 frag;
+        uniform vec3 uEye, uR, uU, uF;
+        uniform float uTan, uAspect;
+        uniform vec2 uJitter;
+        uniform vec4 uBbox;           // left,right,bottom,top
+        uniform vec4 uEndCap;         // secondLast.xy, last.xy
+        uniform vec3 uLightDir;       // stored direction (points away from light)
+        uniform vec3 uJelly;
+        uniform sampler2D uDF;
+        uniform sampler2D uVal;
+
+        const int   MAX_STEPS = 64;
+        const float MAX_DIST  = 10.0;
+        const float SURF      = 0.001;
+        const vec3  GROUND_ALBEDO = vec3(1.0);
+        const vec3  AMBIENT_COLOR = vec3(0.6);
+        const float AMBIENT_INTENSITY = 0.6;
+        const float SPEC_POW = 10.0;
+        const float SPEC_INT = 0.6;
+        const float IOR = 1.42;
+        const float SCATTER = 3.0;
+        const int   AO_STEPS = 3;
+        const float AO_RADIUS = 0.1;
+        const float AO_INTENSITY = 0.5;
+        const float AO_BIAS = SURF * 5.0;
+        const float LINE_RADIUS = 0.024;
+        const float LINE_HALF_THICK = 0.17;
+        const float GROUND_THICK = 0.03;
+        const float GROUND_ROUND = 0.02;
+        const vec3  TEXT_CENTER = vec3(0.72, 0.0, 0.0);
+        const float TEXT_W = 0.38;
+        const float TEXT_H = 0.33;
+
+        // ── sdf helpers ──
+        float sdRoundedBox2d(vec2 p, vec2 size, float r){
+          vec2 d = abs(p) - size + vec2(r);
+          return length(max(d, vec2(0.0))) + min(max(d.x,d.y),0.0) - r;
+        }
+        float sdPie(vec2 p, vec2 sc, float r){
+          p.x = abs(p.x);
+          float l = length(p) - r;
+          float m = length(p - sc*clamp(dot(p,sc), 0.0, r));
+          return max(l, m*sign(sc.y*p.x - sc.x*p.y));
+        }
+        float opExtrudeY(vec3 p, float dd, float h){ vec2 w = vec2(dd, abs(p.y)-h); return min(max(w.x,w.y),0.0)+length(max(w,vec2(0.0))); }
+        float opExtrudeZ(vec3 p, float dd, float h){ vec2 w = vec2(dd, abs(p.z)-h); return min(max(w.x,w.y),0.0)+length(max(w,vec2(0.0))); }
+        float fresnelSchlick(float c, float i1, float i2){ float r0 = pow((i1-i2)/(i1+i2),2.0); return r0 + (1.0-r0)*pow(1.0-c,5.0); }
+        vec3 beerLambert(vec3 sigma, float dist){ return exp(-sigma*dist); }
+
+        // ── bézier field sample ──
+        vec4 sampleField(vec2 p){
+          vec2 uv = vec2((p.x - uBbox.x)/(uBbox.y - uBbox.x), (uBbox.w - p.y)/(uBbox.w - uBbox.z));
+          return texture(uDF, clamp(uv, 0.0, 1.0));
+        }
+
+        // ── slider 3D sdf ──
+        float cap3D(vec3 position){
+          vec2 sec = uEndCap.xy, last = uEndCap.zw;
+          float angle = atan(last.y - sec.y, last.x - sec.x);
+          float ca = cos(angle), sa = sin(angle);
+          vec3 pieP = position - vec3(sec, 0.0);
+          pieP.xy = mat2(ca, -sa, sa, ca) * pieP.xy;
+          float hmm = sdPie(pieP.zx, vec2(1.0, 0.0), LINE_HALF_THICK);
+          return opExtrudeY(pieP, hmm, 0.001) - LINE_RADIUS;
+        }
+        // returns vec3(distance, progress, isCapFlag)
+        vec3 sliderSdf3D(vec3 position){
+          vec4 f = sampleField(position.xy);
+          float t = f.y;
+          float dist;
+          if (t > 0.94){ dist = cap3D(position); }
+          else { dist = opExtrudeZ(position, f.x, LINE_HALF_THICK) - LINE_RADIUS; }
+          return vec3(dist, t, 0.0);
+        }
+        float sliderApproxDist(vec3 position){
+          if (position.x < uBbox.x || position.x > uBbox.y || position.y < uBbox.z || position.y > uBbox.w) return 1e9;
+          vec4 f = sampleField(position.xy);
+          return opExtrudeZ(position, f.x, LINE_HALF_THICK) - LINE_RADIUS;
+        }
+
+        // ── ground (pill tray) ──
+        float rectCutout(vec2 xz){ return sdRoundedBox2d(xz, vec2(1.0+GROUND_ROUND, 0.2+GROUND_ROUND), 0.2+GROUND_ROUND); }
+        float getMainSceneDist(vec3 p){
+          float plane = p.y + 0.06;
+          float tray = opExtrudeY(p, -rectCutout(p.xz), GROUND_THICK - GROUND_ROUND) - GROUND_ROUND;
+          return min(plane, tray);
+        }
+        float getSceneDistForAO(vec3 p){ return min(getMainSceneDist(p), sliderApproxDist(p)); }
+
+        // objectType: 1 = slider, 2 = background
+        // returns (distance, objectType, t)
+        vec3 getSceneDist(vec3 p){
+          float mainD = getMainSceneDist(p);
+          vec3 s = sliderSdf3D(p);
+          if (s.x < mainD) return vec3(s.x, 1.0, s.y);
+          return vec3(mainD, 2.0, 0.0);
+        }
+
+        // ── normals ──
+        vec3 normalMainSdf(vec3 p, float e){
+          vec2 k = vec2(1.0, -1.0);
+          return normalize(
+            k.xyy*getMainSceneDist(p + k.xyy*e) +
+            k.yyx*getMainSceneDist(p + k.yyx*e) +
+            k.yxy*getMainSceneDist(p + k.yxy*e) +
+            k.xxx*getMainSceneDist(p + k.xxx*e));
+        }
+        vec3 normalCapSdf(vec3 p, float e){
+          vec2 k = vec2(1.0, -1.0);
+          return normalize(
+            k.xyy*cap3D(p + k.xyy*e) +
+            k.yyx*cap3D(p + k.yyx*e) +
+            k.yxy*cap3D(p + k.yxy*e) +
+            k.xxx*cap3D(p + k.xxx*e));
+        }
+        vec3 getNormalMain(vec3 p){
+          if (abs(p.z) > 0.22 || abs(p.x) > 1.02) return vec3(0.0,1.0,0.0);
+          return normalMainSdf(p, 0.0001);
+        }
+        vec3 getSliderNormal(vec3 position, float tHit){
+          vec4 f = sampleField(position.xy);
+          vec2 grad2D = f.zw;
+          float seg = f.x;
+          float threshold = LINE_HALF_THICK * 0.85;
+          float absZ = abs(position.z);
+          float zDistance = max(0.0, ((absZ - threshold) * LINE_HALF_THICK) / (LINE_HALF_THICK - threshold));
+          float edgeDistance = LINE_RADIUS - seg;
+          float edgeContrib = 0.9, zContrib = 0.1;
+          float zDir = sign(position.z);
+          vec3 zAxis = vec3(0.0, 0.0, zDir);
+          float edgeBlendDistance = edgeContrib*LINE_RADIUS + zContrib*LINE_HALF_THICK;
+          float blendFactor = smoothstep(edgeBlendDistance, 0.0, zDistance*zContrib + edgeDistance*edgeContrib);
+          vec3 normal2D = vec3(grad2D, 0.0);
+          vec3 blended = mix(zAxis, normal2D, blendFactor*0.5 + 0.5);
+          vec3 n = normalize(blended);
+          if (tHit > 0.94){
+            float ratio = (tHit - 0.94) / 0.02;
+            n = normalize(mix(n, normalCapSdf(position, 0.01), ratio));
+          }
+          return n;
+        }
+        vec3 getNormal(vec3 position, float objType, float tHit){
+          if (objType == 1.0 && tHit < 0.96) return getSliderNormal(position, tHit);
+          return objType == 2.0 ? getNormalMain(position) : normalCapSdf(position, 0.01);
+        }
+
+        // ── fake shadow (projected via the bézier texture) ──
+        vec3 getFakeShadow(vec3 position, vec3 lightDir){
+          vec3 jellyColor = uJelly;
+          float endCapX = uEndCap.z;
+          if (position.y < -GROUND_THICK){
+            float fadeSharpness = 30.0;
+            float inset = 0.02;
+            float cutout = rectCutout(position.xz) + inset;
+            float edgeDark = clamp(1.0 - cutout*fadeSharpness, 0.0, 1.0);
+            float lightGrad = clamp(-position.z*4.0*lightDir.z + 1.0, 0.0, 1.0);
+            return vec3(1.0) * edgeDark * (lightGrad*0.5);
+          } else {
+            vec2 finalUV = vec2(
+              (position.x - position.z*lightDir.x*sign(lightDir.z))*0.5 + 0.5,
+              1.0 - (-position.z/lightDir.z)*0.5 - 0.2);
+            vec4 data = texture(uDF, clamp(finalUV, 0.0, 1.0));
+            float jellySat = mix(0.0, data.y, clamp(position.x*1.5 + 1.1, 0.0, 1.0));
+            vec3 shadowColor = mix(vec3(0.0), jellyColor, jellySat);
+            float contrast = 20.0 * clamp(finalUV.y, 0.0, 1.0) * (0.8 + endCapX*0.2);
+            float shadowOffset = -0.3;
+            float feather = 10.0;
+            float uvEdge = clamp(finalUV.x*feather,0.0,1.0) * clamp((1.0-finalUV.x)*feather,0.0,1.0)
+                         * clamp((1.0-finalUV.y)*feather,0.0,1.0) * clamp(finalUV.y,0.0,1.0);
+            float influence = clamp((1.0 - lightDir.y)*2.0, 0.0, 1.0) * uvEdge;
+            return mix(vec3(1.0), mix(shadowColor, vec3(1.0), clamp(data.x*contrast + shadowOffset, 0.0, 1.0)), influence);
+          }
+        }
+
+        // ── ambient occlusion ──
+        float calculateAO(vec3 position, vec3 normal){
+          float total = 0.0, w = 1.0;
+          float step = AO_RADIUS / float(AO_STEPS);
+          for (int i=1;i<=AO_STEPS;i++){
+            float sh = step * float(i);
+            vec3 sp = position + normal*sh;
+            float dts = getSceneDistForAO(sp) - AO_BIAS;
+            total += max(0.0, sh - dts) * w;
+            w *= 0.5;
+            if (total > AO_RADIUS/AO_INTENSITY) break;
+          }
+          return clamp(1.0 - (AO_INTENSITY*total)/AO_RADIUS, 0.0, 1.0);
+        }
+
+        vec3 calculateLighting(vec3 hitPos, vec3 normal, vec3 rayOrigin){
+          vec3 lightDir = -uLightDir;
+          vec3 fakeShadow = getFakeShadow(hitPos, lightDir);
+          float diffuse = max(dot(normal, lightDir), 0.0);
+          vec3 viewDir = normalize(rayOrigin - hitPos);
+          vec3 reflectDir = reflect(-lightDir, normal);
+          float specFactor = pow(max(dot(viewDir, reflectDir), 0.0), SPEC_POW);
+          vec3 specular = vec3(1.0) * (specFactor * SPEC_INT);
+          vec3 baseColor = vec3(0.9);
+          vec3 directional = baseColor * diffuse * fakeShadow;
+          vec3 ambient = baseColor * AMBIENT_COLOR * AMBIENT_INTENSITY;
+          vec3 finalSpec = specular * fakeShadow;
+          return clamp(directional + ambient + finalSpec, 0.0, 1.0);
+        }
+        vec4 applyAO(vec3 litColor, vec3 hitPos, vec3 normal){
+          return vec4(litColor * calculateAO(hitPos, normal), 1.0);
+        }
+
+        vec4 renderPercentageOnGround(vec3 hitPos){
+          if (abs(hitPos.x - TEXT_CENTER.x) > TEXT_W*0.5 || abs(hitPos.z - TEXT_CENTER.z) > TEXT_H*0.5) return vec4(0.0);
+          float uvX = (hitPos.x - TEXT_CENTER.x + TEXT_W*0.5) / TEXT_W;
+          float uvZ = (hitPos.z - TEXT_CENTER.z + TEXT_H*0.5) / TEXT_H;
+          if (uvX < 0.0 || uvX > 1.0 || uvZ < 0.0 || uvZ > 1.0) return vec4(0.0);
+          // +z runs toward the camera, so the tray's depth axis is the element's
+          // top→bottom — flip it to keep the digits upright on the tray.
+          return texture(uVal, vec2(uvX, 1.0 - uvZ));
+        }
+
+        vec4 renderBackground(vec3 rayOrigin, vec3 rayDirection, float bgDist){
+          vec3 hitPos = rayOrigin + rayDirection*bgDist;
+          vec4 pct = renderPercentageOnGround(hitPos);
+
+          // caustic-ish highlight from the gel density
+          float highlights = 0.0;
+          float hlW = 1.0, hlH = 0.2;
+          float offX = 0.0, offZ = 0.05;
+          vec3 lightDir = uLightDir;
+          float causticScale = 0.2;
+          offX -= lightDir.x * causticScale;
+          offZ += lightDir.z * causticScale;
+          float endCapX = uEndCap.z;
+          float sliderStretch = (endCapX + 1.0)*0.5;
+          if (abs(hitPos.x + offX) < hlW && abs(hitPos.z + offZ) < hlH){
+            float uvX = ((hitPos.x + offX + hlW*2.0)/hlW)*0.5;
+            float uvZ = ((hitPos.z + offZ + hlH*2.0)/hlH)*0.5;
+            vec2 centeredUV = vec2(uvX - 0.5, uvZ - 0.5);
+            vec2 finalUV = vec2(centeredUV.x, 1.0 - pow(abs(centeredUV.y - 0.5)*2.0, 2.0)*0.3);
+            float density = max(0.0, (texture(uDF, clamp(finalUV,0.0,1.0)).x - 0.25)*8.0);
+            float fadeX = smoothstep(0.0, -0.2, hitPos.x - endCapX);
+            float fadeZ = 1.0 - pow(abs(centeredUV.y - 0.5)*2.0, 3.0);
+            float fadeStretch = clamp(1.0 - sliderStretch, 0.0, 1.0);
+            float edgeFade = clamp(fadeX,0.0,1.0) * clamp(fadeZ,0.0,1.0) * fadeStretch;
+            highlights = (pow(density,3.0) * edgeFade * 3.0 * (1.0 + lightDir.z)) / 1.5;
+          }
+
+          vec3 newNormal = getNormalMain(hitPos);
+          float sqDist = dot(hitPos - vec3(endCapX,0.0,0.0), hitPos - vec3(endCapX,0.0,0.0));
+          vec3 bounce = uJelly * ((1.0/(sqDist*15.0 + 1.0))*0.4);
+          vec3 sideBounce = uJelly * ((1.0/(sqDist*40.0 + 1.0))*0.3) * abs(newNormal.z);
+
+          vec3 lit = calculateLighting(hitPos, newNormal, rayOrigin);
+          vec4 bg = applyAO(GROUND_ALBEDO*lit, hitPos, newNormal) + vec4(bounce,0.0) + vec4(sideBounce,0.0);
+          vec3 textColor = clamp(bg.rgb*0.5, 0.0, 1.0);
+          return vec4(mix(bg.rgb, textColor, pct.x) * (1.0 + highlights), 1.0);
+        }
+
+        vec3 rayMarchNoJelly(vec3 rayOrigin, vec3 rayDirection){
+          float d = 0.0, hit = 0.0;
+          for (int i=0;i<6;i++){
+            vec3 p = rayOrigin + rayDirection*d;
+            hit = getMainSceneDist(p);
+            d += hit;
+            if (d > MAX_DIST || hit < SURF*10.0) break;
+          }
+          if (d < MAX_DIST) return renderBackground(rayOrigin, rayDirection, d).rgb;
+          return vec3(0.0);
+        }
+
+        vec4 rayMarch(vec3 ro, vec3 rd){
+          float bgDist = 0.0;
+          for (int i=0;i<MAX_STEPS;i++){
+            vec3 p = ro + rd*bgDist;
+            float hit = getMainSceneDist(p);
+            bgDist += hit;
+            if (hit < SURF) break;
+          }
+          vec4 background = renderBackground(ro, rd, bgDist);
+
+          // box-cull the slider region
+          vec3 bmin = vec3(uBbox.x, uBbox.z, -0.25);
+          vec3 bmax = vec3(uBbox.y, uBbox.w,  0.25);
+          vec3 invD = 1.0/rd;
+          vec3 t1 = (bmin - ro)*invD, t2 = (bmax - ro)*invD;
+          vec3 tmin3 = min(t1,t2), tmax3 = max(t1,t2);
+          float tMin = max(max(tmin3.x,tmin3.y),tmin3.z);
+          float tMax = min(min(tmax3.x,tmax3.y),tmax3.z);
+          if (!(tMax >= tMin && tMax >= 0.0)) return background;
+
+          float d = max(0.0, tMin);
+          int steps = 0;
+          for (int i=0;i<MAX_STEPS;i++){
+            if (steps >= MAX_STEPS) break;
+            vec3 cur = ro + rd*d;
+            vec3 hi = getSceneDist(cur);
+            d += hi.x; steps++;
+            if (hi.x < SURF){
+              vec3 hitPos = ro + rd*d;
+              if (hi.y != 1.0) break;
+              vec3 Nn = getNormal(hitPos, hi.y, hi.z);
+              vec3 I = rd;
+              float cosi = clamp(dot(-I, Nn), 0.0, 1.0);
+              float F = fresnelSchlick(cosi, 1.0, IOR);
+              vec3 reflection = clamp(vec3(hitPos.y + 0.2), 0.0, 1.0);
+              float eta = 1.0/IOR;
+              float k = 1.0 - eta*eta*(1.0 - cosi*cosi);
+              vec3 refractedColor = vec3(0.0);
+              if (k > 0.0){
+                vec3 refrDir = normalize(I*eta + Nn*(eta*cosi - sqrt(k)));
+                vec3 p = hitPos + refrDir*(SURF*2.0);
+                vec3 exitPos = p + refrDir*(SURF*2.0);
+                vec3 env = rayMarchNoJelly(exitPos, refrDir);
+                float progress = hi.z;
+                vec3 scatterTint = uJelly*1.5;
+                vec3 absorb = (vec3(1.0) - uJelly)*20.0;
+                vec3 T = beerLambert(absorb*(progress*progress), 0.08);
+                vec3 lightDir = -uLightDir;
+                float forward = max(0.0, dot(lightDir, refrDir));
+                vec3 scatter = scatterTint*(SCATTER*forward*pow(progress,3.0));
+                refractedColor = env*T + scatter;
+              }
+              vec3 jelly = reflection*F + refractedColor*(1.0 - F);
+              return vec4(jelly, 1.0);
+            }
+            if (d > bgDist) break;
+          }
+          return background;
+        }
+
+        void main(){
+          vec2 ndc = vUv*2.0 - 1.0;
+          ndc += uJitter;
+          vec3 ro = uEye;
+          vec3 rd = normalize(ndc.x*uTan*uAspect*uR + ndc.y*uTan*uU + uF);
+          vec4 color = rayMarch(ro, rd);
+          frag = vec4(tanh(color.rgb*1.3), 1.0);
+        }`;
+
+        // TAA resolve — neighbourhood-clamped history blend
+        const TAA_FS = `#version 300 es
+        precision highp float;
+        in vec2 vUv; out vec4 frag;
+        uniform sampler2D uCur;
+        uniform sampler2D uHist;
+        uniform float uHasHist;
+        void main(){
+          ivec2 c = ivec2(gl_FragCoord.xy);
+          ivec2 dim = textureSize(uCur, 0);
+          vec3 cur = texelFetch(uCur, c, 0).rgb;
+          vec3 mn = vec3(9999.0), mx = vec3(-9999.0);
+          for (int x=-1;x<=1;x++) for (int y=-1;y<=1;y++){
+            ivec2 sc = clamp(c + ivec2(x,y), ivec2(0), dim - ivec2(1));
+            vec3 nb = texelFetch(uCur, sc, 0).rgb;
+            mn = min(mn, nb); mx = max(mx, nb);
+          }
+          vec3 hist = texelFetch(uHist, c, 0).rgb;
+          hist = clamp(hist, mn, mx);
+          float blend = uHasHist * 0.9;
+          frag = vec4(mix(cur, hist, blend), 1.0);
+        }`;
+
+        // Final blit
+        const BLIT_FS = `#version 300 es
+        precision highp float;
+        in vec2 vUv; out vec4 frag;
+        uniform sampler2D uTex;
+        void main(){ frag = vec4(texture(uTex, vUv).rgb, 1.0); }`;
+
+        if (!supported) { mountFallback(); return; }
+
+        function compile(type, src) {
+          const sh = gl.createShader(type);
+          gl.shaderSource(sh, src); gl.compileShader(sh);
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+          return sh;
+        }
+        function program(vs, fs) {
+          const p = gl.createProgram();
+          gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+          gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+          gl.linkProgram(p);
+          if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+          return p;
+        }
+
+        const dfProg = program(VS, DF_FS);
+        const mainProg = program(VS, MAIN_FS);
+        const taaProg = program(VS, TAA_FS);
+        const blitProg = program(VS, BLIT_FS);
+        const vao = gl.createVertexArray();
+
+        function makeTex(w, h, internal, fmt, type, filter) {
+          const t = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, t);
+          gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, fmt, type, null);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          return t;
+        }
+        function makeFbo(tex) {
+          const f = gl.createFramebuffer();
+          gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          return f;
+        }
+
+        // bézier distance-field target
+        const dfTex = makeTex(DFW, DFH, gl.RGBA16F, gl.RGBA, gl.FLOAT, gl.LINEAR);
+        const dfFbo = makeFbo(dfTex);
+
+        // value texture (text uploaded via texElementImage2D)
+        const valTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, valTex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        let valUploads = 12;
+        function uploadValue() {
+          try {
+            gl.bindTexture(gl.TEXTURE_2D, valTex);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+            gl.texElementImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, valueEl);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+            return true;
+          } catch (e) { return false; }
+        }
+
+        // ray-march + TAA targets (rebuilt on resize)
+        let curTex = [], curFbo = [], taaTex = [], taaFbo = [];
+        let rw = 1, rh = 1;
+        function allocTargets(w, h) {
+          [curTex, taaTex].forEach((arr) => arr.forEach((t) => gl.deleteTexture(t)));
+          [curFbo, taaFbo].forEach((arr) => arr.forEach((f) => gl.deleteFramebuffer(f)));
+          curTex = [0, 1].map(() => makeTex(w, h, gl.RGBA16F, gl.RGBA, gl.FLOAT, gl.NEAREST));
+          curFbo = curTex.map(makeFbo);
+          taaTex = [0, 1].map(() => makeTex(w, h, gl.RGBA16F, gl.RGBA, gl.FLOAT, gl.LINEAR));
+          taaFbo = taaTex.map(makeFbo);
+        }
+
+        // uniforms
+        const dfU = {
+          pts: gl.getUniformLocation(dfProg, 'uPts'),
+          ctrl: gl.getUniformLocation(dfProg, 'uCtrl'),
+          bbox: gl.getUniformLocation(dfProg, 'uBbox'),
+        };
+        const mU = {};
+        ['uEye','uR','uU','uF','uTan','uAspect','uJitter','uBbox','uEndCap','uLightDir','uJelly','uDF','uVal']
+          .forEach((n) => mU[n] = gl.getUniformLocation(mainProg, n));
+        const tU = {
+          cur: gl.getUniformLocation(taaProg, 'uCur'),
+          hist: gl.getUniformLocation(taaProg, 'uHist'),
+          hasHist: gl.getUniformLocation(taaProg, 'uHasHist'),
+        };
+        const bU = { tex: gl.getUniformLocation(blitProg, 'uTex') };
+
+        // light: mix between two directions, like the original control
+        const LDIR_A = norm3([0.18, -0.3, 0.64]);
+        const LDIR_B = norm3([-0.5, -0.14, -0.8]);
+        let lightDir = LDIR_A.slice();
+        function setLight() {
+          const v = +lightIn.value / 100;
+          const m = [
+            LDIR_A[0] * (1 - v) + LDIR_B[0] * v,
+            LDIR_A[1] * (1 - v) + LDIR_B[1] * v,
+            LDIR_A[2] * (1 - v) + LDIR_B[2] * v,
+          ];
+          lightDir = norm3(m);
+          lightVal.textContent = lightIn.value;
+        }
+        archIn.addEventListener('input', () => { sim.archStrength = (+archIn.value / 100) * 4; archVal.textContent = archIn.value; });
+        lightIn.addEventListener('input', setLight);
+        setLight();
+
+        const jelly = [1.0, 0.45, 0.075];
+
+        let cssW = 1, cssH = 1, frameCount = 0;
+        function resize() {
+          const r = host.getBoundingClientRect();
+          cssW = Math.max(360, Math.floor(r.width));
+          cssH = Math.max(520, Math.floor(r.height));
+          const scale = Math.min(0.75, 760 / cssW);  // internal res for the ray-marcher
+          canvas.style.width = `${cssW}px`; canvas.style.height = `${cssH}px`;
+          canvas.width = Math.floor(cssW * scale);
+          canvas.height = Math.floor(cssH * scale);
+          rw = canvas.width; rh = canvas.height;
+          allocTargets(rw, rh);
+          frameCount = 0;
+        }
+        new ResizeObserver(resize).observe(host);
+
+        // ── pin the invisible range input over the track ──
+        function project(world) {
+          const p = [world[0] - EYE[0], world[1] - EYE[1], world[2] - EYE[2]];
+          const xv = p[0]*camR[0] + p[1]*camR[1] + p[2]*camR[2];
+          const yv = p[0]*camU[0] + p[1]*camU[1] + p[2]*camU[2];
+          const zv = p[0]*camF[0] + p[1]*camF[1] + p[2]*camF[2];
+          const tan = Math.tan(FOV / 2), aspect = cssW / cssH;
+          const ndcx = xv / (zv * tan * aspect);
+          const ndcy = yv / (zv * tan);
+          return [(ndcx * 0.5 + 0.5) * cssW, (1 - (ndcy * 0.5 + 0.5)) * cssH];
+        }
+        function pinInput() {
+          const a = project([ANCHOR[0], 0, 0]);
+          const b = project([END0[0], 0, 0]);
+          const left = Math.min(a[0], b[0]), wpx = Math.abs(b[0] - a[0]);
+          const top = Math.min(a[1], b[1]) - 32;
+          slider.style.width = `${wpx}px`;
+          slider.style.transform = `translate(${left}px, ${top}px)`;
+          slider.style.pointerEvents = 'auto';
+          valueEl.style.transform = 'translate(-99999px,-99999px)';  // drawn via the GPU; hide the DOM copy
+        }
+
+        // ── interaction ──
+        function onValue() {
+          const v = +slider.value;
+          valueEl.textContent = '';
+          valueEl.append(document.createTextNode(String(v)));
+          const small = document.createElement('small'); small.textContent = '%'; valueEl.append(small);
+          valUploads = 12;
+          setTargetFromValue();
+        }
+        slider.addEventListener('input', onValue);
+        poke.addEventListener('click', () => { for (let i = 1; i < N - 1; i++) { const t = i / (N - 1); prev[i][1] -= 0.05 * Math.sin(Math.PI * t); } });
+
+        // ── render loop ──
+        let last = performance.now(), paints = 0, fpsT = performance.now(), fpsAt = 0, lastFps = 0;
+        initChain(); onValue();
+
+        function frame() {
+          const now = performance.now();
+          const dt = Math.min(1 / 30, (now - last) / 1000) || 1 / 60; last = now;
+          stepPhysics(dt);
+
+          // Pass 1 — bézier distance field
+          gl.bindFramebuffer(gl.FRAMEBUFFER, dfFbo);
+          gl.viewport(0, 0, DFW, DFH);
+          gl.useProgram(dfProg);
+          gl.bindVertexArray(vao);
+          gl.uniform2fv(dfU.pts, ptsFlat);
+          gl.uniform2fv(dfU.ctrl, ctrlFlat);
+          gl.uniform4f(dfU.bbox, BB_L, BB_R, BB_B, BB_T);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+          if (valUploads > 0 && uploadValue()) valUploads--;
+
+          // Pass 2 — ray-march (jittered) → curTex[cur]
+          frameCount++;
+          const cur = frameCount % 2;
+          const jx = ((halton(frameCount, 2) - 0.5) * 2) / rw;
+          const jy = ((halton(frameCount, 3) - 0.5) * 2) / rh;
+          gl.bindFramebuffer(gl.FRAMEBUFFER, curFbo[cur]);
+          gl.viewport(0, 0, rw, rh);
+          gl.useProgram(mainProg);
+          gl.bindVertexArray(vao);
+          gl.uniform3fv(mU.uEye, EYE);
+          gl.uniform3fv(mU.uR, camR); gl.uniform3fv(mU.uU, camU); gl.uniform3fv(mU.uF, camF);
+          gl.uniform1f(mU.uTan, Math.tan(FOV / 2));
+          gl.uniform1f(mU.uAspect, rw / rh);
+          gl.uniform2f(mU.uJitter, jx, jy);
+          gl.uniform4f(mU.uBbox, BB_L, BB_R, BB_B, BB_T);
+          gl.uniform4f(mU.uEndCap, endCap[0], endCap[1], endCap[2], endCap[3]);
+          gl.uniform3fv(mU.uLightDir, lightDir);
+          gl.uniform3fv(mU.uJelly, jelly);
+          gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, dfTex); gl.uniform1i(mU.uDF, 0);
+          gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, valTex); gl.uniform1i(mU.uVal, 1);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+          // Pass 3 — TAA resolve → taaTex[cur]
+          const hist = 1 - cur;
+          gl.bindFramebuffer(gl.FRAMEBUFFER, taaFbo[cur]);
+          gl.viewport(0, 0, rw, rh);
+          gl.useProgram(taaProg);
+          gl.bindVertexArray(vao);
+          gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, curTex[cur]); gl.uniform1i(tU.cur, 0);
+          gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, frameCount <= 1 ? curTex[cur] : taaTex[hist]); gl.uniform1i(tU.hist, 1);
+          gl.uniform1f(tU.hasHist, frameCount <= 1 ? 0 : 1);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+          // Pass 4 — blit to screen
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          gl.viewport(0, 0, canvas.width, canvas.height);
+          gl.useProgram(blitProg);
+          gl.bindVertexArray(vao);
+          gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, taaTex[cur]); gl.uniform1i(bU.tex, 0);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+          pinInput();
+
+          paints++;
+          if (now - fpsT >= 500) { lastFps = ((paints - fpsAt) * 1000) / (now - fpsT); fpsT = now; fpsAt = paints; }
+          stat.textContent = `${lastFps.toFixed(0)} fps · value ${slider.value} · WebGL2 + TAA`;
+          requestAnimationFrame(frame);
+        }
+
+        resize();
+        requestAnimationFrame(frame);
+
+        snapBtn.addEventListener('click', () => {
+          const link = document.createElement('a');
+          link.download = `jelly-slider-tray-${performance.now() | 0}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        });
+
+        function mountFallback() {
+          fbHost.hidden = false;
+          slider.style.transform = ''; valueEl.style.transform = '';
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:16px;';
+          valueEl.textContent = `${slider.value} %`;
+          wrap.append(valueEl, slider);
+          fbHost.append(wrap);
+          slider.addEventListener('input', () => { valueEl.textContent = `${slider.value} %`; });
+          notice.hidden = false; notice.dataset.tone = 'warn';
+          const strong = document.createElement('strong'); strong.textContent = 'WebGL2 + texElementImage2D not available.';
+          const code = document.createElement('code'); code.textContent = 'chrome://flags/#canvas-draw-element';
+          notice.append(strong, ' This demo ray-marches the gel in WebGL2 and needs the HTML-in-Canvas flag (', code, ', Chrome 148+) plus float render targets. Showing a plain slider for now.');
+          stat.textContent = 'fallback · plain DOM';
+        }
+      })();
+    </script>
+  </body>
+</html>

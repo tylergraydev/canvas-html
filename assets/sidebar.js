@@ -61,6 +61,7 @@
         { href: 'examples/18-polyglot-text.html', label: 'Polyglot rich text' },
         { href: 'examples/19-text-cube.html', label: 'Spinning text cube (WebGL)' },
         { href: 'examples/20-jelly-slider.html', label: 'Jelly slider (WebGL)' },
+        { href: 'examples/21-jelly-slider-tray.html', label: 'Jelly slider · tray (WebGL)' },
       ],
     },
     {
